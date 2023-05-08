@@ -1,0 +1,165 @@
+site_name: COINES Documentation
+site_url: https://boschsensortec.github.io/COINES/
+repo_url: https://github.com/boschsensortec/COINES
+edit_uri: edit/main/doc/docs
+copyright: <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons Lizenzvertrag" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a>
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.ico
+  palette:
+    primary: custom
+    accent: custom
+
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.expand
+    - navigation.top
+    - header.autohide
+    - content.code.copy
+    - content.action.edit
+
+extra_css:
+  - stylesheets/extra.css      
+
+extra:
+  social:
+    - icon: fontawesome/solid/file-pdf
+      link: /COINES/pdf/coines_documentation.pdf
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/boschMEMS
+
+nav:
+  - Introduction: 'index.md'
+  - Acessing the sensor on Application Board using C and SensorAPI:
+    - Introduction to COINES: 'accessing_the_sensor_on_application_board/introduction_to_coines.md'
+    - Working Principles:
+      - Running examples on PC side: 'accessing_the_sensor_on_application_board/running_examples_on_pc_side.md'
+      - Running examples directly on the MCU of the Application board: 'accessing_the_sensor_on_application_board/running_examples_directly_on_the_mcu_of_the_application_board.md'
+  - Installation:
+    - System requirements: 'installation/system_requirements.md'
+    - Windows: 'installation/windows.md'
+    - Linux / MacOS: 'installation/linux_macos.md'
+  - Quickstart:
+    - Compiling and executing code: 'quickstart/compiling_and_executing_code.md'
+    - Cross compiling and downloading example to Application Board's microcontroller: 'quickstart/cross_compiling_and_downloading_example_to_application_board_microcontroller.md'
+    - Eclipse project for examples: 'quickstart/eclipse_project_for_examples.md'
+  - coinesAPI description:
+    - Overview of PC side implementations of COINES: 'coines_api/overview_of_pc_side_implementation_of_coines.md'
+    - GPIO Mapping:
+      - APP2.0 shuttle board pins: 'coines_api/gpio_mapping/app20_shuttle_board.md'
+      - APP3.0 shuttle board pins: 'coines_api/gpio_mapping/app30_shuttle_board.md'
+    - coinesAPI calls:
+      - Interface and board information: 'coines_api/api_calls/interface_and_board_information.md'
+      - GPIO oriented calls: 'coines_api/api_calls/gpio_oriented_calls.md'
+      - Sensor communication: 'coines_api/api_calls/sensor_communication.md'
+      - Streaming feature: 'coines_api/api_calls/streaming_feature.md'
+      - Other useful APIs: 'coines_api/api_calls/other.md'
+  - Extending the usage of the example files: 
+    - Simple data logging: 'extending_the_usage_of_example_files/simple_data_logging.md'
+    - Data plotting and visualization: 'extending_the_usage_of_example_files/data_plotting_and_visualization.md'
+  - Media Transfer Protocol (MTP) firmware for Application Board 3.0:
+    - MTP firmware for Application Board 3.0: 'mtp_firmware_for_app30/mtp_firmware_for_app30.md'
+    - Switching to MTP mode: 'mtp_firmware_for_app30/switching_to_mtp_mode.md'
+    - Copying the files using MTP: 'mtp_firmware_for_app30/copying_files_using_mtp.md'
+  - USB/BLE DFU bootloader: 
+    - USB/BLE DFU bootloader: 'usb_ble_dfu_bootloader/usb_ble_dfu_bootloader.md'
+    - Key Features: 'usb_ble_dfu_bootloader/key_features.md'
+    - Invoking the Bootloader: 'usb_ble_dfu_bootloader/invoking_the_bootloader.md'
+    - Using the Bootloader via USB: 'usb_ble_dfu_bootloader/using_with_usb.md'
+    - Using the Bootloader via BLE: 'usb_ble_dfu_bootloader/using_with_ble.md'
+  - Updating Bootloader, DD firmware and MTP firmware using COINES:
+    - Updating bootloader: 'updating_bootloader_dd_firmware_and_mtp_firmware/bootloader.md'
+    - Updating DD firmware: 'updating_bootloader_dd_firmware_and_mtp_firmware/dd_firmware.md'
+    - Updating MTP firmware: 'updating_bootloader_dd_firmware_and_mtp_firmware/mtp_firmware.md'
+  - Accessing the Application Board using Python: 'py_api/py_api.md'
+  - FAQ: 'faq.md'
+  - Legal disclaimer: 'legal_disclaimer.md'
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - footnotes
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.caret
+  - pymdownx.tilde
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascript/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+    
+plugins:
+    - search # built-in search must be always activated
+    - drawio-exporter:
+        # Diagrams are cached to speed up site generation. The default path is
+        # drawio-exporter, relative to the documentation directory.
+        cache_dir: 'drawio-exporter'
+        # Path to the Draw.io executable:
+        #   * drawio on Linux
+        #   * draw.io on macOS
+        #   * or draw.io.exe on Windows
+        # We'll look for it on your system's PATH, then default installation
+        # paths. If we can't find it we'll warn you.
+        drawio_executable: null
+        # Additional Draw.io CLI args
+        drawio_args: []
+        # Output format (see draw.io --help | grep format)
+        format: svg
+        # Embed format
+        #   * The default is to embed via the <img> tag, only rewriting the
+        #     value of the src attribute.
+        #   * Consider <object type="image/svg+xml" data="{img_src}"></object>
+        #     to enable interactive elements (like hyperlinks) in SVGs.
+        embed_format: '{img_open}{img_src}{img_close}'
+        # Glob pattern for matching source files
+        sources: '*.drawio'
+    - with-pdf:
+        author: Bosch Sensortec
+        copyright: CC BY-SA 4.0
+        #
+        #cover: false
+        #back_cover: true
+        # cover_title: TITLE TEXT
+        cover_subtitle: ""
+        #custom_template_path: TEMPLATES PATH
+        #
+        #toc_title: TOC TITLE TEXT
+        #heading_shift: false
+        #toc_level: 3
+        #ordered_chapter_level: 2
+        #excludes_children:
+        #    - 'release-notes/:upgrading'
+        #    - 'release-notes/:changelog'
+        #
+        #exclude_pages:
+        #    - 'bugs/'
+        #    - 'appendix/contribute/'
+        #convert_iframe:
+        #    - src: IFRAME SRC
+        #      img: POSTER IMAGE URL
+        #      text: ALTERNATE TEXT
+        #    - src: ...
+        #two_columns_level: 3
+        #
+        # render_js: true
+        # headless_chrome_path: headless-chromium
+        #
+        output_path: pdf/coines_documentation.pdf
+        #enabled_if_env: ENABLE_PDF_EXPORT
+        #
+        #debug_html: true
+        #show_anchors: true
+        #verbose: true
