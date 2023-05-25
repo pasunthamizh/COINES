@@ -158,7 +158,7 @@ plugins:
         # headless_chrome_path: headless-chromium
         #
         output_path: pdf/coines_documentation.pdf
-        enabled_if_env: ENABLE_PDF_EXPORT
+        # enabled_if_env: ENABLE_PDF_EXPORT
         #
         #debug_html: true
         #show_anchors: true
