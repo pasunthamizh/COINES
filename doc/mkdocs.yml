@@ -26,6 +26,8 @@ extra_css:
 
 extra:
   social:
+    - icon: fontawesome/solid/file-pdf
+      link: /COINES/pdf/coines_documentation.pdf
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/boschMEMS
 
