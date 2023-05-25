@@ -44,15 +44,4 @@ jobs:
              wget -O doc/docs/assets/logo.svg https://www.bosch-presse.de/pressportal/de/media/res/gfx/bosch-invented-for-life.svg
       - name: Build and publish
         run: |
-              # export ENABLE_PDF_EXPORT="true"
-              # mkdocs build --strict --config-file doc/mkdocs.yml
-              # unset ENABLE_PDF_EXPORT
-
-              xvfb-run -a mkdocs gh-deploy --force --config-file doc/mkdocs.yml
-
-
-      - name: Archive documentation pdf
-        uses: actions/upload-artifact@v3
-        with:
-          name: Documentation
-          path: doc/site/pdf/document.pdf
+              xvfb-run -a mkdocs gh-deploy --force --strict --config-file doc/mkdocs.yml
