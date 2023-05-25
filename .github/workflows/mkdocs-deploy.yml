@@ -37,7 +37,7 @@ jobs:
       - name: Fetch Assets
         run: |
              mkdir -p doc/docs/assets/fonts
-             wget -O doc/docs/assets/fonts/boschsans_regular.woff2 https://www.bosch-sensortec.com/media/tech/fonts/woff2/boschsans_regular.woff222222
+             wget -O doc/docs/assets/fonts/boschsans_regular.woff2 https://www.bosch-sensortec.com/media/tech/fonts/woff2/boschsans_regular.woff2
              wget -O doc/docs/assets/fonts/boschsans_bold.woff2 https://www.bosch-sensortec.com/media/tech/fonts/woff2/boschsans_bold.woff2
              wget -O doc/docs/assets/favicon.ico https://www.bosch-sensortec.com/media/tech/tech_images/favicon.ico
              wget -O doc/docs/assets/supergraphic.svg https://www.bosch-presse.de/pressportal/de/media/res/gfx/supergraphic.svg
