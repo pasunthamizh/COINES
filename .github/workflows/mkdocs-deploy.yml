@@ -19,7 +19,7 @@ jobs:
         with:
           key: ${{ github.ref }}
           path: .cache
-      - run: pip install mkdocs-material mkdocs-drawio-exporter mkdocs-print-site-plugin
+      - run: pip install mkdocs-material mkdocs-with-pdf mkdocs-drawio-exporter
       - name: Install Draw.io Desktop
         run: |
              set -euo pipefail
