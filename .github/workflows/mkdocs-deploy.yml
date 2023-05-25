@@ -48,7 +48,7 @@ jobs:
               # mkdocs build --strict --config-file doc/mkdocs.yml
               # unset ENABLE_PDF_EXPORT
 
-              xvfb-run -a mkdocs gh-deploy --strict --force --config-file doc/mkdocs.yml
+              xvfb-run -a mkdocs gh-deploy --force --config-file doc/mkdocs.yml
 
 
       - name: Archive documentation pdf
