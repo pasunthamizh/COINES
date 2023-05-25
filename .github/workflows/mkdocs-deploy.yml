@@ -45,8 +45,8 @@ jobs:
       - name: Build and publish
         run: |
               export ENABLE_PDF_EXPORT="true"
-              mkdocs build --strict --config-file doc/mkdocs.yml
-              unset ENABLE_PDF_EXPORT
+              # mkdocs build --strict --config-file doc/mkdocs.yml
+              # unset ENABLE_PDF_EXPORT
 
               xvfb-run -a mkdocs gh-deploy --strict --force --dirty --config-file doc/mkdocs.yml
 
