@@ -13,11 +13,15 @@ CFLAGS += -std=c99 -D$(PLATFORM) -c -O0 -g -Wall -D$(DRIVER)
 ifeq ($(COINES_BACKEND),COINES_BRIDGE)
     C_SRCS_COINES += \
     coines_bridge.c \
-    serial_com/serial_com.c
+    serial_com/serial_com.c \
+    ble_com/simpleble_lib_loader.c \
+    ble_com/ble_com.c 
 
     INCLUDEPATHS_COINES += \
     . \
-    serial_com
+    serial_com \
+    ble_com \
+    ble_com/simpleble-0.6.0/simpleble_c
 
 else
     C_SRCS_COINES += \
@@ -32,14 +36,16 @@ else
     comm_intf \
     comm_driver \
 
+    ifeq ($(DRIVER),LEGACY_USB_DRIVER)
+		C_SRCS_COINES += comm_driver/legacy_usb/legacy_usb_support.c
+		INCLUDEPATHS_COINES += comm_driver/legacy_usb
+	endif
+
+	ifeq ($(DRIVER),LIBUSB_DRIVER)
+		INCLUDEPATHS_COINES += comm_driver/libusb-1.0
+	endif
+
 endif
 
 
-ifeq ($(DRIVER),LEGACY_USB_DRIVER)
-C_SRCS_COINES += comm_driver/legacy_usb/legacy_usb_support.c
-INCLUDEPATHS_COINES += comm_driver/legacy_usb
-endif
 
-ifeq ($(DRIVER),LIBUSB_DRIVER)
-INCLUDEPATHS_COINES += comm_driver/libusb-1.0
-endif

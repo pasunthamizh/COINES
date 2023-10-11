@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -25,6 +25,7 @@ extern "C"
 /**********************************************************************************/
 /* header includes */
 /**********************************************************************************/
+#include "coines.h"
 #include "nrfx_spim.h"
 #include "nrf_gpio.h"
 /**********************************************************************************/
@@ -112,6 +113,7 @@ uint8_t w25n02jw_spi_rx_tx(uint8_t spi_entity, uint8_t address, uint8_t* tx_buff
         return 1;
     }
    
+    coines_yield();
     return 0;
 }
 

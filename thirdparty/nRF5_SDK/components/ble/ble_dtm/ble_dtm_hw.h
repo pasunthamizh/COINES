@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2016 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -56,22 +56,6 @@
 extern "C" {
 #endif
 
-
-/**@brief Function for selecting a timer resource.
- *        This function may be called directly, or through dtm_cmd() specifying
- *        DTM_PKT_VENDORSPECIFIC as payload, SELECT_TIMER as length, and the timer as freq
- *
- * @param[out] mp_timer      Pointer to timer instance used in dtm source file.
- * @param[out] m_timer_irq   Pointer to timer interrupt related to mp_timer.
- * @param[in]  new_timer     Timer id for the timer to use.
- *
- * @retval true  if the timer was successfully changed.
- * @retval false if the error occurs.
- */
-
-bool dtm_hw_set_timer(NRF_TIMER_Type ** mp_timer, IRQn_Type * m_timer_irq, uint32_t new_timer);
-
-
 /**@brief Function for turning off radio test.
  *        This function is platform depending. For now only nRF51 requieres this special function.
  */
@@ -92,7 +76,7 @@ void dtm_constant_carrier(void);
  * @retval DTM_SUCCESS                     if input parameters values are correct.
  * @retval DTM_ERROR_ILLEGAL_CONFIGURATION if input parameters values are not correct.
  */
-uint32_t dtm_radio_validate(int32_t m_tx_power, uint8_t m_radio_mode);
+uint32_t dtm_radio_validate(uint32_t m_tx_power, uint8_t m_radio_mode);
 
 #ifdef __cplusplus
 }

@@ -1,11 +1,11 @@
 /**
- * Copyright (C) 2020 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * @file        stream.h
  *
- * @brief		This file defines the data structures and macros for sensor data streaming
+ * @brief       This file defines the data structures and macros for sensor data streaming
  *
  */
 
@@ -13,8 +13,7 @@
 #define APPLICATION_STREAM_H_
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
 /**********************************************************************************/
@@ -25,17 +24,18 @@ extern "C"
 /* macro definitions */
 /**********************************************************************************/
 /*! Maximum allowed sensors to stream */
-#define STREAM_MAX_COUNT                    UINT8_C(32)
+#define STREAM_MAX_COUNT             UINT8_C(32)
 
 /*! Maximum IO numbers */
-#define STREAM_MAX_IO_COUNT                 UINT8_C(32)
+#define STREAM_MAX_IO_COUNT          UINT8_C(32)
 
 /*! Maximum data size to read from sensors */
-#define STREAM_MAX_PACKET_DATA_SIZE         UINT16_C(2048)
+#define STREAM_MAX_PACKET_DATA_SIZE  UINT16_C(2048)
 
 /**********************************************************************************/
 /* type definitions */
 /**********************************************************************************/
+
 /*!
  *
  * @brief : Enum for time stamp updation in response packets
@@ -110,7 +110,7 @@ typedef enum
     STREAM_IF_GPIO_2,
     STREAM_IF_GPIO_3,
     STREAM_IF_GPIO_4,
-    STREAM_IF_GPIO_5,
+    STREAM_IF_GPIO_5
 } stream_if_t;
 
 /*!
@@ -162,10 +162,8 @@ typedef struct
 typedef struct
 {
     uint8_t channel_id; /*< channel id */
-    stream_mode_t  mode; /*<stream mode */
+    stream_mode_t mode;  /*<stream mode */
 
-    //stream_param_timestamp_t param_ts;
-    //TODO: improve naming
     stream_if_t param_interface; /*< parameter interface */
     uint32_t sampling_period_us; /*< sampling periond in micro seconds */
     uint32_t GST_multiplier; /*< GST multiplier */
@@ -175,7 +173,7 @@ typedef struct
     stream_read_t read_mode; /*< read mode */
     uint16_t read_period; /*< read period */
 
-    //Payload info and tracking
+    /*Payload info and tracking */
     uint8_t chunk_count; /*< chunk count */
     uint32_t total_data_size; /*< total data size */
     stream_chunkinfo_t *chunks; /*< chunk information */
@@ -227,10 +225,20 @@ typedef struct
  */
 typedef struct
 {
-    uint32_t GST_period_us; /*< Global Sampling Timer period (in polling mode, all sensor sampling periods are multiple of this period)*/
+    uint32_t GST_period_us; /*< Global Sampling Timer period (in polling mode, all sensor sampling periods are multiple
+                             * of this period)*/
     stream_timestamp_t ts_mode; /*< ts mode */
     stream_mode_t stream_mode; /*< stream mode */
 } stream_settings_t;
+
+/*!
+ * @brief data stored and retrived from job queue
+ */
+typedef struct
+{
+    uint32_t multiio_pin;
+    uint64_t timestamp_us;
+} job_data_t;
 
 /**********************************************************************************/
 /* (extern) variable declarations */
@@ -243,6 +251,7 @@ extern stream_fifo_descriptor_t stream_fifo_descriptors;
 /**********************************************************************************/
 /* function prototype declarations */
 /**********************************************************************************/
+
 /*!
  *
  * @brief       : Function will start streaming
@@ -252,6 +261,7 @@ extern stream_fifo_descriptor_t stream_fifo_descriptors;
  * @return      : None
  */
 void stream_start(void);
+
 /*!
  *
  * @brief       : Function will stop streaming
@@ -261,6 +271,7 @@ void stream_start(void);
  * @return      : None
  */
 void stream_stop(void);
+
 /*!
  *
  * @brief       : Function will acquire the sensor data in polling
@@ -270,15 +281,17 @@ void stream_stop(void);
  * @return      : None
  */
 void stream_polling_data_acq(void);
+
 /*!
  *
  * @brief       : Function will acquire the sensor data in interrupt
  *
- * @param[in]   : pin - Gives on which pin interrupt is raised
+ * @param[in]   : p_data - Pointer to data
  *
  * @return      : None
  */
-void stream_interrupt_data_acq(uint32_t pin);
+void stream_interrupt_data_acq(uint8_t *p_data);
+
 /*!
  *
  * @brief       : API will allocate the buffer
@@ -292,10 +305,10 @@ void* stream_memory_alloc(uint32_t size);
 /*!
  *
  * @brief       : API will check whether polling/interrupt data is available and send the acquired data
- 
+
  * @return      : None
  */
-void send_old_protocol_streaming_response(void);
+void send_legacy_protocol_streaming_response(void);
 
 /**********************************************************************************/
 /* inline function definitions */

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2016 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -112,11 +112,6 @@ static uint16_t hid_sof_required(app_usbd_hid_ctx_t * p_hid_ctx, uint16_t framec
     return APP_USBD_HID_SOF_NOT_REQ_FLAG;
 }
 
-static bool hid_idle_on(app_usbd_class_inst_t const * p_inst, app_usbd_hid_ctx_t * p_hid_ctx)
-{
-    return p_hid_ctx->idle_on;
-}
-
 /**
  * @brief User event handler.
  *
@@ -152,37 +147,50 @@ static ret_code_t setup_req_std_in(app_usbd_class_inst_t const * p_inst,
     /* Only Get Descriptor standard IN request is supported by HID class */
     if ((app_usbd_setup_req_rec(p_setup_ev->setup.bmRequestType) == APP_USBD_SETUP_REQREC_INTERFACE)
         &&
-        (p_setup_ev->setup.bmRequest == APP_USBD_SETUP_STDREQ_GET_DESCRIPTOR))
+        (p_setup_ev->setup.bRequest == APP_USBD_SETUP_STDREQ_GET_DESCRIPTOR))
     {
         size_t dsc_len = 0;
         size_t max_size;
+        uint8_t descr_type = p_setup_ev->setup.wValue.hb;
+        uint8_t descr_idx = p_setup_ev->setup.wValue.lb;
 
         uint8_t * p_trans_buff = app_usbd_core_setup_transfer_buff_get(&max_size);
+
+        /* Validation for Class Descriptors. Only HID and REPORT are supported */
+        if ((descr_type < APP_USBD_HID_DESCRIPTOR_HID) || (descr_type >= APP_USBD_HID_DESCRIPTOR_PHYSICAL))
+        {
+            return NRF_ERROR_NOT_SUPPORTED;
+        }
 
         /* Try to find descriptor in class internals*/
         ret_code_t ret = app_usbd_class_descriptor_find(
             p_inst,
-            p_setup_ev->setup.wValue.hb,
-            p_setup_ev->setup.wValue.lb,
+            descr_type,
+            descr_idx,
             p_trans_buff,
             &dsc_len);
 
-        if (ret != NRF_ERROR_NOT_FOUND)
+        if (ret == NRF_SUCCESS)
         {
             ASSERT(dsc_len < NRF_DRV_USBD_EPSIZE);
             return app_usbd_core_setup_rsp(&(p_setup_ev->setup), p_trans_buff, dsc_len);
         }
 
-        /* HID specific descriptors*/
-        uint32_t report_size = 
-            p_hinst->p_hid_methods->subclass_length(p_inst, p_setup_ev->setup.wValue.lb);
-        const uint8_t * p_first_byte = 
-            p_hinst->p_hid_methods->subclass_data(p_inst, p_setup_ev->setup.wValue.lb, 0);
-
-        return app_usbd_core_setup_rsp(
-            &p_setup_ev->setup,
-            p_first_byte,
-            report_size);
+        /* If not found try HID specific descriptors*/
+        if (descr_idx >= p_hinst->p_hid_methods->subclass_count(p_inst) )
+        {
+            /* requested index out of range */
+            return NRF_ERROR_NOT_SUPPORTED;
+        }
+        else
+        {
+            uint32_t report_size = 
+                p_hinst->p_hid_methods->subclass_length(p_inst, descr_idx);
+            const uint8_t * p_first_byte = 
+                p_hinst->p_hid_methods->subclass_data(p_inst, descr_idx, 0);
+         
+            return app_usbd_core_setup_rsp(&p_setup_ev->setup, p_first_byte, report_size);
+        }
     }
 
     return NRF_ERROR_NOT_SUPPORTED;
@@ -223,12 +231,13 @@ static ret_code_t setup_req_class_in(app_usbd_class_inst_t const * p_inst,
                                      app_usbd_hid_ctx_t * p_hid_ctx,
                                      app_usbd_setup_evt_t const * p_setup_ev)
 {
-    switch (p_setup_ev->setup.bmRequest)
+    switch (p_setup_ev->setup.bRequest)
     {
         case APP_USBD_HID_REQ_GET_REPORT:
         {
             if ((p_setup_ev->setup.wValue.hb == APP_USBD_HID_REPORT_TYPE_INPUT) ||
-                (p_setup_ev->setup.wValue.hb == APP_USBD_HID_REPORT_TYPE_OUTPUT))
+                (p_setup_ev->setup.wValue.hb == APP_USBD_HID_REPORT_TYPE_OUTPUT) ||
+                (p_setup_ev->setup.wValue.hb == APP_USBD_HID_REPORT_TYPE_FEATURE))
             {
                 return p_hinst->p_hid_methods->on_get_report(p_inst, p_setup_ev);
             }
@@ -272,15 +281,12 @@ static ret_code_t setup_req_class_out(app_usbd_class_inst_t const * p_inst,
                                       app_usbd_hid_ctx_t * p_hid_ctx,
                                       app_usbd_setup_evt_t const * p_setup_ev)
 {
-    switch (p_setup_ev->setup.bmRequest)
+    switch (p_setup_ev->setup.bRequest)
     {
         case APP_USBD_HID_REQ_SET_REPORT:
-            if (p_setup_ev->setup.wValue.hb != APP_USBD_HID_REPORT_TYPE_OUTPUT)
-            {
-                break;
-            }
-
-            if (p_hinst->p_hid_methods->on_set_report == NULL)
+            if (((p_setup_ev->setup.wValue.hb != APP_USBD_HID_REPORT_TYPE_OUTPUT) &&
+                 (p_setup_ev->setup.wValue.hb != APP_USBD_HID_REPORT_TYPE_FEATURE)) ||
+                p_hinst->p_hid_methods->on_set_report == NULL)
             {
                 break;
             }
@@ -291,12 +297,15 @@ static ret_code_t setup_req_class_out(app_usbd_class_inst_t const * p_inst,
                 p_hid_ctx->idle_rate[p_setup_ev->setup.wValue.lb] = p_setup_ev->setup.wValue.hb;
                 p_hid_ctx->first_idle[p_setup_ev->setup.wValue.lb] = APP_USBD_SOF_MAX + 1;
 
-                /* Clear idle */
+                /* Clear idle, high byte is interval. */
                 if(p_setup_ev->setup.wValue.hb == 0) 
                 {
-                    /* If only idle rate with id 0 is non 0 set idle_id_report to false */
+                    /* Set global idle flags according to values in channels.
+                       If only idle rate with id 0 is non 0 set idle_id_report to false. */
                     bool clear = true;
                     uint8_t i = 0;
+
+                    /* Loop starts at 1 to skip the "global" channel 0. */
                     for(i=1; i < APP_USBD_HID_REPORT_IDLE_TABLE_SIZE; i++)
                     {
                         if(p_hid_ctx->idle_rate[i] != 0)
@@ -305,27 +314,30 @@ static ret_code_t setup_req_class_out(app_usbd_class_inst_t const * p_inst,
                             break;
                         }
                     }
-                    
+
+                    /* If all channels 1..N have frequency 0 then switch off global handling of idle. */
                     if(clear)
                     {
+                        /* Distinguish between "report-specific" reports and "global" flag. */
                         p_hid_ctx->idle_id_report = false;
                         
                         if(p_hid_ctx->idle_rate[0] == 0)
                         {
-                            /* If all are 0 set m_idle_on to false */
+                            /* If all are 0 set m_idle_on to false. */
                             p_hid_ctx->idle_on = false;
                         }
                     }
                 }
-                /* Set idle */
+                /* Set idle because Interval was != 0 */
                 else
                 {
-                    /* If any idle rate is not 0 set m_idle_on to true */
+                    /* If any idle rate is not 0 set m_idle_on to true. */
                     p_hid_ctx->idle_on = true;
                     
-                    /* If any idle rate with id != 0 is non 0 set idle_id_report to true */
+                    /* If any idle rate with id != 0 is non 0 set idle_id_report to true. */
                     if(p_setup_ev->setup.wValue.lb != 0)
                     {
+                        /* Separate handling when only a single report is used. */
                         p_hid_ctx->idle_id_report = true;
                     }
                 }
@@ -439,11 +451,6 @@ static ret_code_t endpoint_in_event_handler(app_usbd_class_inst_t const * p_inst
         return NRF_SUCCESS;
     }
 
-    if (!hid_idle_on(p_inst, p_hid_ctx))
-    {
-        return p_hinst->p_hid_methods->ep_transfer_in(p_inst);
-    }
-    else
     {
         uint8_t i = 0;
         for(i=0; i < APP_USBD_HID_REPORT_IDLE_TABLE_SIZE; i++)
@@ -459,8 +466,11 @@ static ret_code_t endpoint_in_event_handler(app_usbd_class_inst_t const * p_inst
                 break;
             }
         }
-        return NRF_SUCCESS;
     }
+
+    /* HID 1.11 specification states that in case the report has changed, 
+       it should be transfered immediately  even when idle is enabled. */
+    return p_hinst->p_hid_methods->ep_transfer_in(p_inst);
 }
 
 /**
@@ -616,6 +626,12 @@ app_usbd_hid_report_buffer_t * app_usbd_hid_rep_buff_in_get(app_usbd_hid_inst_t 
 {
     ASSERT(p_hinst);
     return p_hinst->p_rep_buffer_in;
+}
+
+app_usbd_hid_report_buffer_t const * app_usbd_hid_rep_buff_feature_get(app_usbd_hid_inst_t const * p_hinst)
+{
+    ASSERT(p_hinst);
+    return p_hinst->p_rep_buffer_feature;
 }
 
 #endif //NRF_MODULE_ENABLED(APP_USBD_HID)

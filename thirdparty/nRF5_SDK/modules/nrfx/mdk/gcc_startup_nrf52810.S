@@ -1,6 +1,6 @@
 /*
  
-Copyright (c) 2009-2018 ARM Limited. All rights reserved.
+Copyright (c) 2009-2020 ARM Limited. All rights reserved.
 
     SPDX-License-Identifier: Apache-2.0
 
@@ -68,7 +68,7 @@ __HeapBase:
 __HeapLimit:
     .size __HeapLimit, . - __HeapLimit
 
-    .section .isr_vector
+    .section .isr_vector, "ax"
     .align 2
     .globl __isr_vector
 __isr_vector:
@@ -92,9 +92,9 @@ __isr_vector:
   /* External Interrupts */
     .long   POWER_CLOCK_IRQHandler
     .long   RADIO_IRQHandler
-    .long   UARTE0_IRQHandler
-    .long   TWIM0_TWIS0_IRQHandler
-    .long   SPIM0_SPIS0_IRQHandler
+    .long   UARTE0_UART0_IRQHandler
+    .long   TWIM0_TWIS0_TWI0_IRQHandler
+    .long   SPIM0_SPIS0_SPI0_IRQHandler
     .long   0                           /*Reserved */
     .long   GPIOTE_IRQHandler
     .long   SAADC_IRQHandler
@@ -216,16 +216,40 @@ __isr_vector:
     .type Reset_Handler, %function
 Reset_Handler:
 
+    /* Workaround for Errata 185 RAM: RAM corruption at extreme corners 
+     * found at the Errata document for your device located
+     * at https://infocenter.nordicsemi.com/index.jsp */
+    
+    LDR     R0, =0x10000130
+    LDR     R0, [R0]
+    LDR     R1, =0x10000134
+    LDR     R1, [R1]
+    
+    CMP     R0, #0xA
+    BNE     skip
+    CMP     R1, #0x0
+    BNE     skip
+    
+    LDR     R0, =0x40000EE4
+    LDR     R2, [R0]
+    LDR     R3, =0xFFFFFF8F
+    ANDS    R2, R2, R3
+    LDR     R3, =0x00000040
+    ORRS    R2, R2, R3
+    STR     R2, [R0]
+    
+skip:
 
 /* Loop to copy data from read only memory to RAM.
  * The ranges of copy from/to are specified by following symbols:
  *      __etext: LMA of start of the section to copy from. Usually end of text
  *      __data_start__: VMA of start of the section to copy to.
  *      __bss_start__: VMA of end of the section to copy to. Normally __data_end__ is used, but by using __bss_start__
- *                    the user can add their own initialized data section before BSS section with the INTERT AFTER command.
+ *                    the user can add their own initialized data section before BSS section with the INSERT AFTER command.
  *
  * All addresses must be aligned to 4 bytes boundary.
  */
+#ifndef __STARTUP_SKIP_ETEXT
     ldr r1, =__etext
     ldr r2, =__data_start__
     ldr r3, =__bss_start__
@@ -240,6 +264,7 @@ Reset_Handler:
     bgt .L_loop1
 
 .L_loop1_done:
+#endif
 
 /* This part of work usually is done in C library startup code. Otherwise,
  * define __STARTUP_CLEAR_BSS to enable it in this startup. This section
@@ -365,9 +390,9 @@ Default_Handler:
 
     IRQ  POWER_CLOCK_IRQHandler
     IRQ  RADIO_IRQHandler
-    IRQ  UARTE0_IRQHandler
-    IRQ  TWIM0_TWIS0_IRQHandler
-    IRQ  SPIM0_SPIS0_IRQHandler
+    IRQ  UARTE0_UART0_IRQHandler
+    IRQ  TWIM0_TWIS0_TWI0_IRQHandler
+    IRQ  SPIM0_SPIS0_SPI0_IRQHandler
     IRQ  GPIOTE_IRQHandler
     IRQ  SAADC_IRQHandler
     IRQ  TIMER0_IRQHandler

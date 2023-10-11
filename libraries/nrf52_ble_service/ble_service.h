@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
- * Copyright (c) 2022, Bosch Sensortec GmbH
+ * Copyright (c) 2023, Bosch Sensortec GmbH
  *
  * All rights reserved.
  *
@@ -61,8 +61,18 @@
 #include "ble_advertising.h"
 #include "nrf_ringbuf.h"
 
+#ifdef MCU_APP30
 #define BLE_DEVICE_NAME                 "APP Board 3.0"/**<if user has not configured ble name using coines_ble_config() then
                                                          default ble name will be used along with last four digit of mac address (APP Board 3.0(XX-XX)) */
+#endif                                                         
+
+#ifdef MCU_NICLA
+#define BLE_DEVICE_NAME                 "Nicla Sense ME "
+#endif
+
+#ifdef MCU_APP31
+#define BLE_DEVICE_NAME                 "APP Board 3.1 "
+#endif
 
 #define APP_BLE_CONN_CFG_TAG            1                                           /**< A tag identifying the
                                                                                      * SoftDevice BLE configuration. */
@@ -82,10 +92,10 @@
                                                                                      * means enabling unlimited advertising(no timeout)
                                                                                      */
 
-#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(10, UNIT_1_25_MS)             /**< Minimum acceptable connection
-                                                                                     * interval (12.5 ms), Connection
+#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(12, UNIT_1_25_MS)             /**< Minimum acceptable connection
+                                                                                     * interval (15 ms), Connection
                                                                                      * interval uses 1.25 ms units. */
-#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(30, UNIT_1_25_MS)             /**< Maximum acceptable connection
+#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(12, UNIT_1_25_MS)             /**< Maximum acceptable connection
                                                                                      * interval (37.5 ms), Connection
                                                                                      * interval uses 1.25 ms units. */
 #define SLAVE_LATENCY                   0                                           /**< Slave latency. */

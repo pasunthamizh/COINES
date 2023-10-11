@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2016 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -280,6 +280,7 @@ static void log_msg_queue_process(nrf_queue_t const * p_queue, bool fstorage_blo
         m_curr_len = sizeof(m_flash_buf);
         if (!msg_to_buf(p_msg, (uint8_t *)m_flash_buf, &m_curr_len))
         {
+            nrf_memobj_put(p_msg);
             continue;
         }
 

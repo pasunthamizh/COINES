@@ -66,6 +66,8 @@
 #define DS28E05_COMMAND_SUCCESS 				UINT8_C(0xAA)
 #define DS28E05_COMMAND_FAILURE					UINT8_C(0x33)
 
+#define DS28E05_ROM_ID_SIZE                    UINT8_C(0x08)
+
 bool ds28e05_reset(void);
 bool ds28e05_writebyte(uint8_t);
 uint8_t ds28e05_readbyte(void);

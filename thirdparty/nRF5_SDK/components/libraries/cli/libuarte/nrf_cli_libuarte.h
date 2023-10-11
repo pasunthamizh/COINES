@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2018 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -45,9 +45,9 @@ extern "C" {
 #endif
 
 #include "nrf_cli.h"
-#include "nrf_libuarte.h"
 #include "nrf_ringbuf.h"
 #include "app_timer.h"
+#include "nrf_uarte.h"
 
 /**@file
  *

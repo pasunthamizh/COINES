@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -44,9 +44,9 @@
 /*! bmi088 shuttle id*/
 #define BMI088_SHUTTLE_ID         0x66
 /*! bmi08x Accel Device address */
-#define BMI08x_ACCEL_DEV_ADDR BMI08X_ACCEL_I2C_ADDR_PRIMARY
+#define BMI08x_ACCEL_DEV_ADDR BMI08_ACCEL_I2C_ADDR_PRIMARY
 /*! bmi08x Gyro Device address */
-#define BMI08x_GYRO_DEV_ADDR BMI08X_GYRO_I2C_ADDR_PRIMARY
+#define BMI08x_GYRO_DEV_ADDR BMI08_GYRO_I2C_ADDR_PRIMARY
 /*! Variable that holds the I2C device address or SPI chip selection for accel */
 uint8_t acc_dev_add;
 
@@ -57,15 +57,15 @@ uint8_t gyro_dev_add;
 /*********************************************************************/
 
 /*! @brief This structure containing relevant bmi08x info */
-struct bmi08x_dev bmi08xdev;
+struct bmi08_dev bmi08xdev;
 /*! accel streaming response  buffer */
 uint8_t bmi08x_accel_stream_buffer[COINES_STREAM_RSP_BUF_SIZE];
 /*! gyro streaming response buffer */
 uint8_t bmi08x_gyro_stream_buffer[COINES_STREAM_RSP_BUF_SIZE];
 /*! bmi08x accel int config */
-struct bmi08x_accel_int_channel_cfg accel_int_config;
+struct bmi08_accel_int_channel_cfg accel_int_config;
 /*! bmi08x gyro int config */
-struct bmi08x_gyro_int_channel_cfg gyro_int_config;
+struct bmi08_gyro_int_channel_cfg gyro_int_config;
 /*!accel streaming configuration */
 struct coines_streaming_config accel_stream_config;
 /*! gyro stream configuration*/
@@ -97,7 +97,7 @@ static void init_bmi08x(void);
 /*!
  * @brief	This internal API is used to initialize and map the sensor driver interface
  */
-static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant);
+static void init_bmi08x_sensor_driver_interface(enum bmi08_variant variant);
 /*!
  * @brief	This internal API is used to enable the bmi08x interrupt
  */
@@ -121,7 +121,7 @@ void bmi08x_delay_us(uint32_t period, void *intf_ptr)
 /*!
  * I2C read function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -131,7 +131,7 @@ BMI08X_INTF_RET_TYPE bmi08x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32
 /*!
  * I2C write function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -141,7 +141,7 @@ BMI08X_INTF_RET_TYPE bmi08x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data,
 /*!
  * SPI read function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -151,7 +151,7 @@ BMI08X_INTF_RET_TYPE bmi08x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32
 /*!
  * SPI write function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_spi_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_spi_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -182,7 +182,7 @@ static void send_stream_settings()
     accel_stream_config.int_pin = COINES_MINI_SHUTTLE_PIN_1_6;
     accel_stream_config.int_timestamp = 1;
     accel_stream_block.no_of_blocks = 1;
-    accel_stream_block.reg_start_addr[0] = BMI08X_REG_ACCEL_X_LSB; //accel data start address
+    accel_stream_block.reg_start_addr[0] = BMI08_REG_ACCEL_X_LSB; //accel data start address
 #if BMI08x_INTERFACE_I2C==1
             accel_stream_block.no_of_data_bytes[0] = 6;
 #endif
@@ -205,7 +205,7 @@ static void send_stream_settings()
     gyro_stream_config.int_pin = COINES_MINI_SHUTTLE_PIN_1_7;
     gyro_stream_config.int_timestamp = 1;
     gyro_stream_block.no_of_blocks = 1;
-    gyro_stream_block.reg_start_addr[0] = BMI08X_REG_GYRO_X_LSB; //gyro data start address
+    gyro_stream_block.reg_start_addr[0] = BMI08_REG_GYRO_X_LSB; //gyro data start address
     gyro_stream_block.no_of_data_bytes[0] = 6;
 
     coines_config_streaming(2, &gyro_stream_config, &gyro_stream_block);
@@ -234,7 +234,7 @@ void read_sensor_data()
 
     while (counter < 1000)
     {
-        if (bmi08xdev.accel_cfg.power == BMI08X_ACCEL_PM_ACTIVE)
+        if (bmi08xdev.accel_cfg.power == BMI08_ACCEL_PM_ACTIVE)
         {
             memset(&bmi08x_accel_stream_buffer[0], 0,
             COINES_STREAM_RSP_BUF_SIZE);
@@ -300,7 +300,7 @@ void read_sensor_data()
             }
         }
 
-        if (bmi08xdev.gyro_cfg.power == BMI08X_GYRO_PM_NORMAL)
+        if (bmi08xdev.gyro_cfg.power == BMI08_GYRO_PM_NORMAL)
         {
             memset(&bmi08x_gyro_stream_buffer[0], 0,
             COINES_STREAM_RSP_BUF_SIZE);
@@ -422,8 +422,8 @@ static void init_sensor_interface(void)
  */
 static void init_bmi08x(void)
 {
-    if (bmi08a_init(&bmi08xdev) == BMI08X_OK
-        && bmi08g_init(&bmi08xdev) == BMI08X_OK)
+    if (bmi08a_init(&bmi08xdev) == BMI08_OK
+        && bmi08g_init(&bmi08xdev) == BMI08_OK)
     {
         printf("BMI08x initialization success !\n");
         printf("Accel chip ID - 0x%x\n", bmi08xdev.accel_chip_id);
@@ -438,33 +438,33 @@ static void init_bmi08x(void)
     }
     coines_delay_msec(100);
 
-    bmi08xdev.accel_cfg.odr = BMI08X_ACCEL_ODR_1600_HZ;
-#if BMI08X_FEATURE_BMI085 == 1
+    bmi08xdev.accel_cfg.odr = BMI08_ACCEL_ODR_1600_HZ;
+#if BMI08_FEATURE_BMI085 == 1
     bmi08xdev.accel_cfg.range = BMI085_ACCEL_RANGE_16G;
-#elif BMI08X_FEATURE_BMI088 == 1
+#elif BMI08_FEATURE_BMI088 == 1
     bmi08xdev.accel_cfg.range = BMI088_ACCEL_RANGE_24G;
 #endif
-    bmi08xdev.accel_cfg.power = BMI08X_ACCEL_PM_ACTIVE;
-    bmi08xdev.accel_cfg.bw = BMI08X_ACCEL_BW_NORMAL;
+    bmi08xdev.accel_cfg.power = BMI08_ACCEL_PM_ACTIVE;
+    bmi08xdev.accel_cfg.bw = BMI08_ACCEL_BW_NORMAL;
 
     bmi08a_set_power_mode(&bmi08xdev);
     coines_delay_msec(10);
     bmi08a_set_meas_conf(&bmi08xdev);
     coines_delay_msec(10);
 
-    bmi08xdev.gyro_cfg.odr = BMI08X_GYRO_BW_230_ODR_2000_HZ;
-    bmi08xdev.gyro_cfg.range = BMI08X_GYRO_RANGE_250_DPS;
-    bmi08xdev.gyro_cfg.bw = BMI08X_GYRO_BW_230_ODR_2000_HZ;
-    bmi08xdev.gyro_cfg.power = BMI08X_GYRO_PM_NORMAL;
+    bmi08xdev.gyro_cfg.odr = BMI08_GYRO_BW_230_ODR_2000_HZ;
+    bmi08xdev.gyro_cfg.range = BMI08_GYRO_RANGE_250_DPS;
+    bmi08xdev.gyro_cfg.bw = BMI08_GYRO_BW_230_ODR_2000_HZ;
+    bmi08xdev.gyro_cfg.power = BMI08_GYRO_PM_NORMAL;
 
     bmi08g_set_power_mode(&bmi08xdev);
     coines_delay_msec(10);
     bmi08g_set_meas_conf(&bmi08xdev);
     coines_delay_msec(10);
 
-    if (bmi08xdev.accel_cfg.power == BMI08X_ACCEL_PM_SUSPEND
-        && (bmi08xdev.gyro_cfg.power == BMI08X_GYRO_PM_SUSPEND
-            || bmi08xdev.gyro_cfg.power == BMI08X_GYRO_PM_DEEP_SUSPEND))
+    if (bmi08xdev.accel_cfg.power == BMI08_ACCEL_PM_SUSPEND
+        && (bmi08xdev.gyro_cfg.power == BMI08_GYRO_PM_SUSPEND
+            || bmi08xdev.gyro_cfg.power == BMI08_GYRO_PM_DEEP_SUSPEND))
     {
         printf(
                "Accel. and gyro sensors are in suspend mode\n Use them in active/normal mode !!");
@@ -484,34 +484,34 @@ static void enable_bmi08x_interrupt()
 {
     int8_t rslt;
     /*set accel interrupt pin configuration*/
-    accel_int_config.int_channel = BMI08X_INT_CHANNEL_1;
-    accel_int_config.int_type = BMI08X_ACCEL_INT_DATA_RDY;
-    accel_int_config.int_pin_cfg.output_mode = BMI08X_INT_MODE_PUSH_PULL;
-    accel_int_config.int_pin_cfg.lvl = BMI08X_INT_ACTIVE_HIGH;
-    accel_int_config.int_pin_cfg.enable_int_pin = BMI08X_ENABLE;
+    accel_int_config.int_channel = BMI08_INT_CHANNEL_1;
+    accel_int_config.int_type = BMI08_ACCEL_INT_DATA_RDY;
+    accel_int_config.int_pin_cfg.output_mode = BMI08_INT_MODE_PUSH_PULL;
+    accel_int_config.int_pin_cfg.lvl = BMI08_INT_ACTIVE_HIGH;
+    accel_int_config.int_pin_cfg.enable_int_pin = BMI08_ENABLE;
     /*Enable accel data ready interrupt channel*/
     rslt = bmi08a_set_int_config(
-                                 (const struct bmi08x_accel_int_channel_cfg*)&accel_int_config,
+                                 (const struct bmi08_accel_int_channel_cfg*)&accel_int_config,
                                  &bmi08xdev);
 
-    if (rslt != BMI08X_OK)
+    if (rslt != BMI08_OK)
     {
         printf("BMI08x enable accel interrupt configuration failure!\n");
         exit(COINES_E_FAILURE);
     }
 
     /*set gyro interrupt pin configuration*/
-    gyro_int_config.int_channel = BMI08X_INT_CHANNEL_3;
-    gyro_int_config.int_type = BMI08X_GYRO_INT_DATA_RDY;
-    gyro_int_config.int_pin_cfg.output_mode = BMI08X_INT_MODE_PUSH_PULL;
-    gyro_int_config.int_pin_cfg.lvl = BMI08X_INT_ACTIVE_HIGH;
-    gyro_int_config.int_pin_cfg.enable_int_pin = BMI08X_ENABLE;
+    gyro_int_config.int_channel = BMI08_INT_CHANNEL_3;
+    gyro_int_config.int_type = BMI08_GYRO_INT_DATA_RDY;
+    gyro_int_config.int_pin_cfg.output_mode = BMI08_INT_MODE_PUSH_PULL;
+    gyro_int_config.int_pin_cfg.lvl = BMI08_INT_ACTIVE_HIGH;
+    gyro_int_config.int_pin_cfg.enable_int_pin = BMI08_ENABLE;
     /*Enable gyro data ready interrupt channel*/
     bmi08g_set_int_config(
-                          (const struct bmi08x_gyro_int_channel_cfg *)&gyro_int_config,
+                          (const struct bmi08_gyro_int_channel_cfg *)&gyro_int_config,
                           &bmi08xdev);
 
-    if (rslt != BMI08X_OK)
+    if (rslt != BMI08_OK)
     {
         printf("BMI08x enable gyro interrupt configuration failure!\n");
         exit(COINES_E_FAILURE);
@@ -531,31 +531,31 @@ static void disable_bmi08x_interrupt()
     int8_t rslt;
 
     /*set accel interrupt pin configuration*/
-    accel_int_config.int_channel = BMI08X_INT_CHANNEL_1;
-    accel_int_config.int_type = BMI08X_ACCEL_INT_DATA_RDY;
-    accel_int_config.int_pin_cfg.output_mode = BMI08X_INT_MODE_PUSH_PULL;
-    accel_int_config.int_pin_cfg.lvl = BMI08X_INT_ACTIVE_HIGH;
-    accel_int_config.int_pin_cfg.enable_int_pin = BMI08X_DISABLE;
+    accel_int_config.int_channel = BMI08_INT_CHANNEL_1;
+    accel_int_config.int_type = BMI08_ACCEL_INT_DATA_RDY;
+    accel_int_config.int_pin_cfg.output_mode = BMI08_INT_MODE_PUSH_PULL;
+    accel_int_config.int_pin_cfg.lvl = BMI08_INT_ACTIVE_HIGH;
+    accel_int_config.int_pin_cfg.enable_int_pin = BMI08_DISABLE;
     /*Disable accel data ready interrupt channel*/
     rslt = bmi08a_set_int_config(
-                                 (const struct bmi08x_accel_int_channel_cfg*)&accel_int_config,
+                                 (const struct bmi08_accel_int_channel_cfg*)&accel_int_config,
                                  &bmi08xdev);
-    if (rslt != BMI08X_OK)
+    if (rslt != BMI08_OK)
     {
         printf("BMI08x disable accel interrupt configuration failure!\n");
     }
     /*set gyro interrupt pin configuration*/
-    gyro_int_config.int_channel = BMI08X_INT_CHANNEL_4;
-    gyro_int_config.int_type = BMI08X_GYRO_INT_DATA_RDY;
-    gyro_int_config.int_pin_cfg.output_mode = BMI08X_INT_MODE_PUSH_PULL;
-    gyro_int_config.int_pin_cfg.lvl = BMI08X_INT_ACTIVE_HIGH;
-    gyro_int_config.int_pin_cfg.enable_int_pin = BMI08X_DISABLE;
+    gyro_int_config.int_channel = BMI08_INT_CHANNEL_4;
+    gyro_int_config.int_type = BMI08_GYRO_INT_DATA_RDY;
+    gyro_int_config.int_pin_cfg.output_mode = BMI08_INT_MODE_PUSH_PULL;
+    gyro_int_config.int_pin_cfg.lvl = BMI08_INT_ACTIVE_HIGH;
+    gyro_int_config.int_pin_cfg.enable_int_pin = BMI08_DISABLE;
     /*Disable gyro data ready interrupt channel*/
     rslt = bmi08g_set_int_config(
-                                 (const struct bmi08x_gyro_int_channel_cfg *)&gyro_int_config,
+                                 (const struct bmi08_gyro_int_channel_cfg *)&gyro_int_config,
                                  &bmi08xdev);
 
-    if (rslt != BMI08X_OK)
+    if (rslt != BMI08_OK)
     {
         printf("BMI08x disable gyro interrupt configuration failure!\n");
     }
@@ -570,7 +570,7 @@ static void disable_bmi08x_interrupt()
  *  @return void
  *
  */
-static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant)
+static void init_bmi08x_sensor_driver_interface(enum bmi08_variant variant)
 {
 #if BMI08x_INTERFACE_I2C==1
     /* I2C setup */
@@ -580,9 +580,9 @@ static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant)
     bmi08xdev.read = bmi08x_i2c_read;
     bmi08xdev.delay_us = bmi08x_delay_us;
     /* set correct i2c address */
-	acc_dev_add = BMI08X_ACCEL_I2C_ADDR_PRIMARY;
-    gyro_dev_add = BMI08X_GYRO_I2C_ADDR_PRIMARY;
-    bmi08xdev.intf = BMI08X_I2C_INTF;
+	acc_dev_add = BMI08_ACCEL_I2C_ADDR_PRIMARY;
+    gyro_dev_add = BMI08_GYRO_I2C_ADDR_PRIMARY;
+    bmi08xdev.intf = BMI08_I2C_INTF;
 #endif
 #if BMI08x_INTERFACE_SPI==1
     /* SPI setup */
@@ -591,7 +591,7 @@ static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant)
     bmi08xdev.write = bmi08x_spi_write;
     bmi08xdev.read = bmi08x_spi_read;
     bmi08xdev.delay_us = bmi08x_delay_us;
-    bmi08xdev.intf = BMI08X_SPI_INTF;
+    bmi08xdev.intf = BMI08_SPI_INTF;
     acc_dev_add = COINES_MINI_SHUTTLE_PIN_2_1;
     gyro_dev_add = COINES_MINI_SHUTTLE_PIN_2_5;
 #endif

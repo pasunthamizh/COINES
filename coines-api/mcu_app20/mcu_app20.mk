@@ -17,6 +17,7 @@ $(ASF_DIR)/sam/drivers/twi/twi.c \
 $(ASF_DIR)/sam/drivers/spi/spi.c \
 $(ASF_DIR)/sam/drivers/wdt/wdt.c \
 $(ASF_DIR)/sam/drivers/rstc/rstc.c \
+$(ASF_DIR)/sam/drivers/tc/tc.c \
 $(ASF_DIR)/common/services/clock/sam4s/sysclk.c \
 $(ASF_DIR)/common/services/delay/sam/cycle_counter.c \
 $(ASF_DIR)/common/services/sleepmgr/sam/sleepmgr.c             \
@@ -39,12 +40,14 @@ INCLUDEPATHS_COINES += \
 . \
 conf \
 $(ASF_DIR)/sam/utils/cmsis/sam4s/include \
+$(ASF_DIR)/sam/utils/cmsis/sam4s/include/component \
 $(ASF_DIR)/sam/drivers/pmc \
 $(ASF_DIR)/sam/drivers/pio \
 $(ASF_DIR)/sam/drivers/twi \
 $(ASF_DIR)/sam/drivers/spi \
 $(ASF_DIR)/sam/drivers/wdt \
 $(ASF_DIR)/sam/drivers/rstc \
+$(ASF_DIR)/sam/drivers/tc \
 $(ASF_DIR)/sam/drivers/udp  \
 $(ASF_DIR)/sam/drivers/pdc  \
 $(ASF_DIR)/thirdparty/CMSIS/Include \

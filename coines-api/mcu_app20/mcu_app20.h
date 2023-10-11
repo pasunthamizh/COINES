@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -8,7 +8,8 @@
  * @brief This file contains COINES layer function prototypes, variable declarations and Macro definitions
  *
  */
-
+#ifndef MCU_APP20_H_
+#define MCU_APP20_H_
 /**********************************************************************************/
 /* system header includes */
 /**********************************************************************************/
@@ -63,6 +64,7 @@
 #include <wdt.h>
 #include <spi.h>
 #include <rstc.h>
+#include <tc.h>
 #include <pdc.h>
 #include <spi_master.h>
 #include <pio_handler.h>
@@ -110,3 +112,16 @@
 #define  APP_RESET_HANDLER_ADDR  (*(U32 *)(APP_START_ADDR + 4))
 
 /****************************************************************************/
+typedef void (*timed_interrupt_cb)(uint64_t timestamp, uint32_t multiio_pin, uint32_t multiio_pin_polarity);
+void (*timer_interrupt_handler[COINES_TIMER_INSTANCE_MAX]) (void);
+struct coines_timed_interrupt_config
+{
+    timed_interrupt_cb cb;
+};
+
+struct coines_timed_interrupt_config timed_interrupt_config[COINES_SHUTTLE_PIN_MAX];
+
+void TC0_Handler    ( void ) __attribute__ ((weak, alias("tc0_handler")));
+void TC1_Handler    ( void ) __attribute__ ((weak, alias("tc1_handler")));
+void TC2_Handler    ( void ) __attribute__ ((weak, alias("tc2_handler")));
+#endif /* MCU_APP20_H_ */

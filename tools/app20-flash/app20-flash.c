@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -235,7 +235,8 @@ static uint8_t app2_read_board_type()
 static void file_read_by_len(FILE *file_h, uint8_t *fw_data, uint32_t len)
 {
     memset(fw_data, 0xFF, WRITE_SIZE);
-    fread(fw_data, WRITE_SIZE, 1, file_h);
+    size_t result = fread(fw_data, WRITE_SIZE, 1, file_h);
+    (void)result;
 }
 
 /*!

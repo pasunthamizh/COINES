@@ -1,3 +1,8 @@
+# Coines bridge version info
+COINES_BRIDGE_VERSION_MAJOR = 1
+COINES_BRIDGE_VERSION_MINOR = 7
+COINES_BRIDGE_VERSION_PATCH = 0
+
 # Root of COINES installation folder
 # Can be C:/COINES/v2.0 , $(HOME)/COINES/v2.0 ,etc.,
 # Don't use '\' 
@@ -9,8 +14,13 @@ EXAMPLE_FILE = coines_bridge_firmware.c
 # Additional C files
 # Eg: C_SRCS += support.c test.c
 C_SRCS += coines_bridge_client.c
+C_SRCS += coines_bridge_stream.c
 C_SRCS += decoder/decoder.c
+C_SRCS += stream/decoder_support.c
 C_SRCS += stream/stream.c
+C_SRCS += $(COINES_INSTALL_PATH)/libraries/job_queue/job_queue.c
+C_SRCS += $(COINES_INSTALL_PATH)/libraries/mbuf/mbuf.c
+
 
 # Additional C++ files
 # Eg: CPP_SRCS += support.cpp test.cpp
@@ -23,11 +33,21 @@ ASM_SRCS +=
 
 # Additional paths to look for header files
 # Eg: INCLUDEPATHS += inc inc/test
-INCLUDEPATHS += decoder stream $(COINES_INSTALL_PATH)/libraries/nrf52_eeprom
+INCLUDEPATHS += decoder 
+INCLUDEPATHS += stream 
+INCLUDEPATHS += $(COINES_INSTALL_PATH)/libraries/nrf52_eeprom 
+INCLUDEPATHS += $(COINES_INSTALL_PATH)/libraries/job_queue
+INCLUDEPATHS += $(COINES_INSTALL_PATH)/libraries/mbuf
+
+# Default read buff size
+READ_BUFF_SIZE ?= 3072 
 
 # Additional C compiler flags
 # Eg: CFLAGS += -D TEST=5 
-CFLAGS +=
+CFLAGS += -DCOM_READ_BUFF_SIZE=$(READ_BUFF_SIZE) 
+CFLAGS += -DSOFTWARE_VERSION_MAJOR=$(COINES_BRIDGE_VERSION_MAJOR) 
+CFLAGS += -DSOFTWARE_VERSION_MINOR=$(COINES_BRIDGE_VERSION_MINOR) 
+CFLAGS += -DSOFTWARE_VERSION_PATCH=$(COINES_BRIDGE_VERSION_PATCH)
 
 # Additional C++ compiler flags
 # Eg: CPPFLAGS += -std=c++11 
@@ -41,7 +61,6 @@ LIBPATHS +=
 # LIBS += algobsec algobsx
 LIBS +=
 
-TARGET ?= MCU_APP30
 LOCATION=FLASH
 
 include $(COINES_INSTALL_PATH)/coines.mk

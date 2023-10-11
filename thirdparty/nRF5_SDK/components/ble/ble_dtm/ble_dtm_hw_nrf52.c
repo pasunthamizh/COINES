@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2016 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -56,37 +56,37 @@ NRF_RADIO->MODECNF0 = (RADIO_MODECNF0_RU_Default << RADIO_MODECNF0_RU_Pos) |
 }
 
 
-uint32_t dtm_radio_validate(int32_t m_tx_power, uint8_t m_radio_mode)
+uint32_t dtm_radio_validate(uint32_t m_tx_power, uint8_t m_radio_mode)
 {
     // Initializing code below is quite generic - for BLE, the values are fixed, and expressions
     // are constant. Non-constant values are essentially set in radio_prepare().
     if (!(
-#ifdef NRF52840_XXAA
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos8dBm     ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos7dBm     ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos6dBm     ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos5dBm     ||
-#endif //NRF52840_XXAA
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos4dBm     ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos3dBm     ||
-#ifdef NRF52840_XXAA
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Pos2dBm     ||
-#endif //NRF52840_XXAA
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_0dBm        ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg4dBm     ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg8dBm     ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg12dBm    ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg16dBm    ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg20dBm    ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg30dBm    ||
-          (m_tx_power & RADIO_TXPOWER_TXPOWER_Msk) == RADIO_TXPOWER_TXPOWER_Neg40dBm
+#if defined(NRF52840_XXAA) || defined(NRF52833_XXAA) || defined(NRF52820_XXAA)
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos8dBm     ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos7dBm     ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos6dBm     ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos5dBm     ||
+#endif //defined(NRF52840_XXAA) || defined(NRF52833_XXAA) || defined(NRF52820_XXAA)
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos4dBm     ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos3dBm     ||
+#if defined(NRF52840_XXAA) || defined(NRF52833_XXAA) || defined(NRF52820_XXAA)
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Pos2dBm     ||
+#endif //defined(NRF52840_XXAA) || defined(NRF52833_XXAA)A || defined(NRF52820_XXAA)
+          m_tx_power == RADIO_TXPOWER_TXPOWER_0dBm        ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg4dBm     ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg8dBm     ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg12dBm    ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg16dBm    ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg20dBm    ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg30dBm    ||
+          m_tx_power == RADIO_TXPOWER_TXPOWER_Neg40dBm
           ) ||
 
          !(
-#ifdef NRF52840_XXAA
+#if defined(NRF52840_XXAA) || defined(NRF52811_XXAA) || defined(NRF52833_XXAA) || defined(NRF52820_XXAA)
            m_radio_mode == RADIO_MODE_MODE_Ble_LR125Kbit  ||
            m_radio_mode == RADIO_MODE_MODE_Ble_LR500Kbit  ||
-#endif //NRF52840_XXAA
+#endif //defined(NRF52840_XXAA) || defined(NRF52811_XXAA) || defined(NRF52833_XXAA) || defined(NRF52820_XXAA)
            m_radio_mode == RADIO_MODE_MODE_Ble_1Mbit      ||
            m_radio_mode == RADIO_MODE_MODE_Ble_2Mbit
          )
@@ -96,43 +96,4 @@ uint32_t dtm_radio_validate(int32_t m_tx_power, uint8_t m_radio_mode)
     }
 
     return DTM_SUCCESS;
-}
-
-
-bool dtm_hw_set_timer(NRF_TIMER_Type ** mp_timer, IRQn_Type * m_timer_irq, uint32_t new_timer)
-{
-    if (new_timer == 0)
-    {
-        *mp_timer    = NRF_TIMER0;
-        *m_timer_irq = TIMER0_IRQn;
-    }
-    else if (new_timer == 1)
-    {
-        *mp_timer    = NRF_TIMER1;
-        *m_timer_irq = TIMER1_IRQn;
-    }
-    else if (new_timer == 2)
-    {
-        *mp_timer    = NRF_TIMER2;
-        *m_timer_irq = TIMER2_IRQn;
-    }
-#ifndef NRF52810_XXAA
-    else if (new_timer == 3)
-    {
-        *mp_timer    = NRF_TIMER3;
-        *m_timer_irq = TIMER3_IRQn;
-    }
-    else if (new_timer == 4)
-    {
-        *mp_timer    = NRF_TIMER4;
-        *m_timer_irq = TIMER4_IRQn;
-    }
-#endif //NRF52810_XXAA
-    else
-    {
-        // Parameter error: Only TIMER 0, 1, 2, 3 and 4 provided by nRF52
-        return false;
-    }
-    // New timer has been selected:
-    return true;
 }

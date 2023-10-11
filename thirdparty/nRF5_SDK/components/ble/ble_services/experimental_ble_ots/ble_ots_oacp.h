@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2017 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -53,6 +53,7 @@
 
 #include <stdint.h>
 #include "ble_ots.h"
+#include "nrf_ble_gq.h"
 
 /**@brief Function for initializing the Object Transfer OACP characteristic.
  *

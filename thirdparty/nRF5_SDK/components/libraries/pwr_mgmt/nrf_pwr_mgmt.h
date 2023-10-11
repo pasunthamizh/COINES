@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2016 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -51,6 +51,10 @@
 #include <stdint.h>
 #include <sdk_errors.h>
 #include "nrf_section_iter.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**@brief Power management shutdown types. */
 typedef enum
@@ -145,6 +149,10 @@ void nrf_pwr_mgmt_feed(void);
  * @details All callbacks will be executed prior to shutdown.
  */
 void nrf_pwr_mgmt_shutdown(nrf_pwr_mgmt_shutdown_t shutdown_type);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // NRF_PWR_MGMT_H__
 /** @} */

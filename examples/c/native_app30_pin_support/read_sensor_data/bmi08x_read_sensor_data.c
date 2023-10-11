@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -25,13 +25,13 @@
 /* local macro definitions */
 /*********************************************************************/
 /*! i2c interface communication, 1 - Enable; 0- Disable */
-#define BMI08x_INTERFACE_I2C             0
+#define BMI08__INTERFACE_I2C             0
 /*! spi interface communication, 1 - Enable; 0- Disable */
-#define BMI08x_INTERFACE_SPI             1
+#define BMI08__INTERFACE_SPI             1
 
-#if (!((BMI08x_INTERFACE_I2C==1) && (BMI08x_INTERFACE_SPI==0)) && \
-	(!((BMI08x_INTERFACE_I2C==0) && (BMI08x_INTERFACE_SPI==1))))
-#error "Invalid value given for the macros BMI08x_INTERFACE_I2C / BMI08x_INTERFACE_SPI"
+#if (!((BMI08__INTERFACE_I2C==1) && (BMI08__INTERFACE_SPI==0)) && \
+	(!((BMI08__INTERFACE_I2C==0) && (BMI08__INTERFACE_SPI==1))))
+#error "Invalid value given for the macros BMI08__INTERFACE_I2C / BMI08__INTERFACE_SPI"
 #endif
 
 /*! bmi085 shuttle id*/
@@ -40,10 +40,10 @@
 #define BMI088_SHUTTLE_ID         0x66
 
 /*! bmi08x Accel Device address */
-#define BMI08x_ACCEL_DEV_ADDR BMI08X_ACCEL_I2C_ADDR_PRIMARY
+#define BMI08__ACCEL_DEV_ADDR BMI08X_ACCEL_I2C_ADDR_PRIMARY
 
 /*! bmi08x Gyro Device address */
-#define BMI08x_GYRO_DEV_ADDR BMI08X_GYRO_I2C_ADDR_PRIMARY
+#define BMI08__GYRO_DEV_ADDR BMI08X_GYRO_I2C_ADDR_PRIMARY
 /*! Variable that holds the I2C device address or SPI chip selection for accel */
 uint8_t acc_dev_add;
 
@@ -54,11 +54,11 @@ uint8_t gyro_dev_add;
 /* global variables */
 /*********************************************************************/
 /*! @brief This structure containing relevant bmi08x info */
-struct bmi08x_dev bmi08xdev;
+struct bmi08_dev bmi08xdev;
 /*! @brief variable to hold the bmi08x accel data */
-struct bmi08x_sensor_data bmi08x_accel;
+struct bmi08_sensor_data bmi08x_accel;
 /*! @brief variable to hold the bmi08x gyro data */
-struct bmi08x_sensor_data bmi08x_gyro;
+struct bmi08_sensor_data bmi08x_gyro;
 /*! accel streaming response  buffer */
 
 /*********************************************************************/
@@ -78,7 +78,7 @@ static void init_bmi08x(void);
 /*!
  * @brief	 This internal API is used to initialize the sensor driver interface
  */
-static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant);
+static void init_bmi08x_sensor_driver_interface(enum bmi08_variant variant);
 
 /*********************************************************************/
 /* functions */
@@ -94,7 +94,7 @@ void bmi08x_delay_us(uint32_t period, void *intf_ptr)
 /*!
  * I2C read function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -104,7 +104,7 @@ BMI08X_INTF_RET_TYPE bmi08x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32
 /*!
  * I2C write function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -114,7 +114,7 @@ BMI08X_INTF_RET_TYPE bmi08x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data,
 /*!
  * SPI read function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -124,7 +124,7 @@ BMI08X_INTF_RET_TYPE bmi08x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32
 /*!
  * SPI write function map to COINES platform
  */
-BMI08X_INTF_RET_TYPE bmi08x_spi_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
+BMI08_INTF_RET_TYPE bmi08x_spi_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
 {
     uint8_t dev_addr = *(uint8_t*)intf_ptr;
 
@@ -145,7 +145,7 @@ static void init_sensor_interface(void)
     /* Switch VDD for sensor off */
     coines_set_shuttleboard_vdd_vddio_config(0, 0);
     coines_delay_msec(10);
-#if BMI08x_INTERFACE_I2C==1
+#if BMI08__INTERFACE_I2C==1
     /* set the sensor interface as I2C with 400kHz speed*/
     coines_config_i2c_bus(COINES_I2C_BUS_0, COINES_I2C_FAST_MODE);
     coines_delay_msec(10);
@@ -153,7 +153,7 @@ static void init_sensor_interface(void)
     coines_set_pin_config(COINES_MINI_SHUTTLE_PIN_2_6, COINES_PIN_DIRECTION_OUT,
                           COINES_PIN_VALUE_HIGH);
 #endif
-#if BMI08x_INTERFACE_SPI==1
+#if BMI08__INTERFACE_SPI==1
     /* CS pin is made high for selecting SPI protocol*/
     coines_set_pin_config(COINES_MINI_SHUTTLE_PIN_2_1, COINES_PIN_DIRECTION_OUT, COINES_PIN_VALUE_HIGH);
     /* CS pin is made high for selecting SPI protocol*/
@@ -179,36 +179,36 @@ static void init_sensor_interface(void)
  */
 static void init_bmi08x(void)
 {
-    if (bmi08a_init(&bmi08xdev) == BMI08X_OK
-        && bmi08g_init(&bmi08xdev) == BMI08X_OK)
+    if (bmi08a_init(&bmi08xdev) == BMI08_OK
+        && bmi08g_init(&bmi08xdev) == BMI08_OK)
     {
-        printf("BMI08x initialization success !\n");
+        printf("BMI08_ initialization success !\n");
         printf("Accel chip ID - 0x%x\n", bmi08xdev.accel_chip_id);
         printf("Gyro chip ID - 0x%x\n", bmi08xdev.gyro_chip_id);
     }
     else
     {
-        printf("BMI08x initialization failure !\n");
+        printf("BMI08_ initialization failure !\n");
         exit(COINES_E_FAILURE);
     }
-    bmi08xdev.accel_cfg.odr = BMI08X_ACCEL_ODR_1600_HZ;
+    bmi08xdev.accel_cfg.odr = BMI08_ACCEL_ODR_1600_HZ;
 #if BMI08X_FEATURE_BMI085 == 1
     bmi08xdev.accel_cfg.range = BMI085_ACCEL_RANGE_16G;
 #elif BMI08X_FEATURE_BMI088 == 1
     bmi08xdev.accel_cfg.range = BMI088_ACCEL_RANGE_24G;
 #endif
-    bmi08xdev.accel_cfg.power = BMI08X_ACCEL_PM_ACTIVE; //user_accel_power_modes[user_bmi088_accel_low_power];
-    bmi08xdev.accel_cfg.bw = BMI08X_ACCEL_BW_NORMAL; /* Bandwidth and OSR are same */
+    bmi08xdev.accel_cfg.power = BMI08_ACCEL_PM_ACTIVE; //user_accel_power_modes[user_bmi088_accel_low_power];
+    bmi08xdev.accel_cfg.bw = BMI08_ACCEL_BW_NORMAL; /* Bandwidth and OSR are same */
 
     bmi08a_set_power_mode(&bmi08xdev);
     coines_delay_msec(10);
     bmi08a_set_meas_conf(&bmi08xdev);
     coines_delay_msec(10);
 
-    bmi08xdev.gyro_cfg.odr = BMI08X_GYRO_BW_230_ODR_2000_HZ;
-    bmi08xdev.gyro_cfg.range = BMI08X_GYRO_RANGE_250_DPS;
-    bmi08xdev.gyro_cfg.bw = BMI08X_GYRO_BW_230_ODR_2000_HZ;
-    bmi08xdev.gyro_cfg.power = BMI08X_GYRO_PM_NORMAL;
+    bmi08xdev.gyro_cfg.odr = BMI08_GYRO_BW_230_ODR_2000_HZ;
+    bmi08xdev.gyro_cfg.range = BMI08_GYRO_RANGE_250_DPS;
+    bmi08xdev.gyro_cfg.bw = BMI08_GYRO_BW_230_ODR_2000_HZ;
+    bmi08xdev.gyro_cfg.power = BMI08_GYRO_PM_NORMAL;
 
     bmi08g_set_power_mode(&bmi08xdev);
     coines_delay_msec(10);
@@ -226,9 +226,9 @@ static void init_bmi08x(void)
  *  @return void
  *
  */
-static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant)
+static void init_bmi08x_sensor_driver_interface(enum bmi08_variant variant)
 {
-#if BMI08x_INTERFACE_I2C==1
+#if BMI08__INTERFACE_I2C==1
     /* I2C setup */
     /* link read/write/delay function of host system to appropriate
      * bmi08x function call prototypes */
@@ -240,14 +240,14 @@ static void init_bmi08x_sensor_driver_interface(enum bmi08x_variant variant)
     gyro_dev_add = BMI08X_GYRO_I2C_ADDR_PRIMARY;
     bmi08xdev.intf = BMI08X_I2C_INTF;
 #endif
-#if BMI08x_INTERFACE_SPI==1
+#if BMI08__INTERFACE_SPI==1
     /* SPI setup */
     /* link read/write/delay function of host system to appropriate
      *  bmi08x function call prototypes */
     bmi08xdev.write = bmi08x_spi_write;
     bmi08xdev.read = bmi08x_spi_read;
     bmi08xdev.delay_us = bmi08x_delay_us;
-    bmi08xdev.intf = BMI08X_SPI_INTF;
+    bmi08xdev.intf = BMI08_SPI_INTF;
     acc_dev_add = COINES_MINI_SHUTTLE_PIN_2_1;
     gyro_dev_add = COINES_MINI_SHUTTLE_PIN_2_5;
 #endif

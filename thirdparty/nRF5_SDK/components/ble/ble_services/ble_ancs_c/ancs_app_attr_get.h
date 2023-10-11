@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2012 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2012 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -46,6 +46,8 @@
  * @addtogroup ble_ancs_c
  * @{
  */
+
+#define BLE_ANCS_WRITE_MAX_MSG_LENGTH 20  /**< Maximum GATTC write length. */
 
 /**@brief Function for requesting attributes for an app.
  *

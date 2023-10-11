@@ -1,4 +1,35 @@
-﻿COINES v2.7 Beta release - (12-05-2022)
+﻿COINES v2.8  - (12-07-2023)
+
+Updates
+* Added Coines bridge support for NICLA and app20 boards
+* Added beta version of Coines bridge for app31 board with minimal sanity test done for one sensor(BMA400) examples
+* Updated BMA456,BMI08X,BMP3,BME68x,BMI270,BHY2 API's and examples			
+* Added BMI088_MM,BMP5,BMM350,BMI323 API's and examples	  
+* Removed BMA423,BMI090L API's and examples
+* Added echo_test() API to test communication in coinespy.
+* Added config parameters for Serial com and BLE com in coines_open_comm_intf() API for Windows ( PC only )
+* Added BLE interface support for Windows ( PC only )
+* Added coines_yield to utilize the CPU idle time 
+* Added python bmi08x streaming benchmark test to analyze the data loss
+* Added packet number check to avoid reading duplicate data in interrupt streaming 
+* Added job_queue and multi_buffering library to optimize streaming data loss
+* Added linux and mac OS support for PC target to communicate with coines_bridge
+* Added 2 new APIs
+  - coines_attach_timed_interrupt() - Attaches a timed interrupt to a Multi-IO pin ( MCU only )
+  - coines_detach_timed_interrupt() - Detaches a timed interrupt from a Multi-IO pin ( MCU only )
+* BLE minimum and maximum connection interval is set to 15ms to support both android and iOS.
+* Added streaming API support in coinespy.
+* Added coines support for 'NICLA SENSE ME' board.
+* Added timer counter support for app20
+* Updated nRF5 SDK to 17.1.0
+
+Known limitation:
+* As part of multi-instance, either one of SPI0 or SPI1 bus is allowed to be configured in an application since the external flash occupies other SPI instance already. 
+* In APP30 with PC target we can only read upto 3KB
+* Streaming API's only supported in PC target
+
+
+COINES v2.7 Beta release - (12-05-2022)
 
 Updates
 * Updated datalogger package 1.5.2 with documentation 

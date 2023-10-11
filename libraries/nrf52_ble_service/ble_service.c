@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2016 - 2018, Nordic Semiconductor ASA
- * Copyright (c) 2022, Bosch Sensortec GmbH
+ * Copyright (c) 2023, Bosch Sensortec GmbH
  *
  * All rights reserved.
  *
@@ -454,11 +454,12 @@ static void services_init(void)
  */
 static void on_conn_params_evt(ble_conn_params_evt_t * p_evt)
 {
-    uint32_t err_code;
+    uint32_t err_code = NRF_SUCCESS;
 
     if (p_evt->evt_type == BLE_CONN_PARAMS_EVT_FAILED)
     {
-        err_code = sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_CONN_INTERVAL_UNACCEPTABLE);
+        // commented the disconnect call to keep the connection alive  
+        //err_code = sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_CONN_INTERVAL_UNACCEPTABLE);
         APP_ERROR_CHECK(err_code);
     }
 }
@@ -620,6 +621,8 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_DISCONNECTED:
             /* LED indication will be changed when advertising starts. */
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
+            ble_nus_connected = false;
+            ble_bas_connected = false;
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST:

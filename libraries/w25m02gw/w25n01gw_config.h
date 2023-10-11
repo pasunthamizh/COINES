@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -24,7 +24,8 @@ extern "C"
 
 /**********************************************************************************/
 /* header includes */
-/**********************************************************************************/
+/**********************************************************************************/\
+#include "coines.h"
 #include "nrfx_spim.h"
 #include "nrf_gpio.h"
 /**********************************************************************************/
@@ -50,7 +51,6 @@ static uint8_t flash_spi_tx_buff[SPI_TX_SIZE];
 /**********************************************************************************/
 /* type definitions */
 /**********************************************************************************/
-
 /*!
  * @brief       This function sets the gpio pin given as input
  *
@@ -112,6 +112,7 @@ uint8_t w25n01gw_spi_rx_tx(uint8_t spi_entity, uint8_t address, uint8_t* tx_buff
         return 1;
     }
    
+    coines_yield();
     return 0;
 }
 

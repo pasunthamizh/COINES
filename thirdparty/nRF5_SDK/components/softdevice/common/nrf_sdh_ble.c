@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2017 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -110,7 +110,7 @@ ret_code_t nrf_sdh_ble_default_cfg_set(uint8_t conn_cfg_tag, uint32_t * p_ram_st
         return ret_code;
     }
 
-#ifdef S112
+#if defined (S112) || defined(S312)
     STATIC_ASSERT(NRF_SDH_BLE_CENTRAL_LINK_COUNT == 0, "When using s112, NRF_SDH_BLE_CENTRAL_LINK_COUNT must be 0.");
 #endif
 
@@ -136,12 +136,14 @@ ret_code_t nrf_sdh_ble_default_cfg_set(uint8_t conn_cfg_tag, uint32_t * p_ram_st
 
     // Configure the connection roles.
     memset(&ble_cfg, 0, sizeof(ble_cfg));
+#if !defined (S122)
     ble_cfg.gap_cfg.role_count_cfg.periph_role_count  = NRF_SDH_BLE_PERIPHERAL_LINK_COUNT;
-#ifndef S112
+#endif // !defined (S122)
+#if !defined (S112) && !defined(S312) && !defined(S113)
     ble_cfg.gap_cfg.role_count_cfg.central_role_count = NRF_SDH_BLE_CENTRAL_LINK_COUNT;
     ble_cfg.gap_cfg.role_count_cfg.central_sec_count  = MIN(NRF_SDH_BLE_CENTRAL_LINK_COUNT,
                                                             BLE_GAP_ROLE_COUNT_CENTRAL_SEC_DEFAULT);
-#endif
+#endif // !defined (S112) && !defined(S312) && !defined(S113)
 
     ret_code = sd_ble_cfg_set(BLE_GAP_CFG_ROLE_COUNT, &ble_cfg, *p_ram_start);
     if (ret_code != NRF_SUCCESS)

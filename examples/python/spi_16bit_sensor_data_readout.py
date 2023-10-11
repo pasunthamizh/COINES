@@ -1,53 +1,63 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-* Copyright (C) 2021 Bosch Sensortec GmbH
-*
-* Created 17.03.2020
-*
-"""
+# pylint: disable=no-member
 
+import sys
 import time
-import coinespy as BST
+import coinespy as cpy
+from coinespy import ErrorCodes
 
 # This example works with Application Board 2.0 and any sensor shuttle supports
 # 16bit SPI register read
 
-BOARD = BST.UserApplicationBoard()
+BOARD = cpy.CoinesBoard()
+
+
+def verify_error(keyword=None, exit_flag=False):
+    if BOARD.error_code != ErrorCodes.COINES_SUCCESS:
+        print(f"{keyword} failure: {BOARD.error_code}")
+        if exit_flag:
+            BOARD.close_comm_interface()
+            sys.exit()
+
 
 # create single board instance over USB connection
-def bst_init_brd_app20():
-    "Init USB interface"
-    BOARD.PCInterfaceConfig(BST.PCINTERFACE.USB)
+def bst_init_brd_app30():
+    """Init USB interface"""
+    BOARD.open_comm_interface(cpy.CommInterface.USB)
+    if BOARD.error_code != ErrorCodes.COINES_SUCCESS:
+        print(f"Open Communication interface: {BOARD.error_code}")
+        sys.exit()
 
-# ############################################################################
-# Main routine.
+
 if __name__ == "__main__":
-    bst_init_brd_app20()
+    bst_init_brd_app30()
 
-    BMA400_CS_PIN = BST.ShuttleBoardPin.COINES_SHUTTLE_PIN_7
-    bus = BST.I2CBus.BUS_I2C_0
-    # bus = BST.SPIBus.BUS_SPI_0
+    BMA400_CS_PIN = cpy.MultiIOPin.SHUTTLE_PIN_7
+    bus = cpy.SPIBus.BUS_SPI_0
 
-    BOARD.SetVDD(0)
-    BOARD.SetVDDIO(0)
+    BOARD.set_shuttleboard_vdd_vddio_config(vdd_val=0, vddio_val=0)
+    verify_error(keyword="set vdd, vddio", exit_flag=True)
     # 16bit SPI interface config
-    BOARD.Sensor16bitSPIConfig(BMA400_CS_PIN, BST.SPISPEED.SPI1000KBIT, \
-                               BST.SPIMODE.MODE0, BST.SPIBITS.SPI16BIT)
-    BOARD.PinConfig(BMA400_CS_PIN, BST.EONOFF.ON, BST.PINMODE.OUTPUT, \
-                                                BST.PINLEVEL.HIGH)
+    BOARD.config_word_spi_bus(bus, BMA400_CS_PIN, cpy.SPISpeed.SPI_1_MHZ,
+                              cpy.SPIMode.MODE0, cpy.SPITransferBits.SPI16BIT)
+    verify_error(keyword="configuring spi bus", exit_flag=True)
+    BOARD.set_pin_config(BMA400_CS_PIN, cpy.PinDirection.OUTPUT, cpy.PinValue.HIGH)
+    verify_error(keyword="configuring Pin", exit_flag=True)
 
-    BOARD.SetVDD(3.3)
-    BOARD.SetVDDIO(3.3)
+    BOARD.set_shuttleboard_vdd_vddio_config(vdd_val=3.3, vddio_val=3.3)
+    verify_error(keyword="set vdd, vddio", exit_flag=True)
     time.sleep(0.2)
 
-    # Reading upto 100 words(16 bit data = 200 bytes)
+    # Reading up to 100 words(16 bit data = 200 bytes)
     for count in range(100):
-        reg_data = BOARD.Read(bus, 0x00, count, BMA400_CS_PIN)
-        data = ' '.join(format(x, '04x') for x in reg_data)
-        print("\nread data:\n" + data)
+        reg_data = BOARD.read_16bit_spi(bus, 0x00, count)
+        verify_error(keyword="Device read", exit_flag=False)
+        DATA = ' '.join(format(x, '04x') for x in reg_data)
+        print("\nread data:\n" + DATA)
 
-    BOARD.SetVDD(0)
-    BOARD.SetVDDIO(0)
-    BOARD.ClosePCInterface()
+    BOARD.set_shuttleboard_vdd_vddio_config(vdd_val=0, vddio_val=0)
+    BOARD.soft_reset()
+    verify_error("soft reset")
+    BOARD.close_comm_interface()

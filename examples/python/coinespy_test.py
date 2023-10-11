@@ -2,31 +2,27 @@
 # -*- coding: utf-8 -*-
 """
 (c) Bosch Sensortec GmbH, Reutlingen, Germany
-
-    20. Nov 2019
-
-    Install `coinespy` before running this script
-    $ pip install -U coinespy 
-
+Open Source as per the BSD-3 Clause
 """
+# pylint: disable=no-member
 
-import coinespy as BST
+import coinespy as cpy
+from coinespy import ErrorCodes
+
+COM_INTF = cpy.CommInterface.USB
 
 if __name__ == "__main__":
 
-    board = BST.UserApplicationBoard()
-    # If you get an error message on startup, that coineslib could not be loaded, then
-    # intialize the UserApplicationBoard object with the path to the library, e.g.
-    #(WIN)board = BST.UserApplicationBoard(r'libcoines.dll')
-    #(LINUX)board = BST.UserApplicationBoard(r'libcoines.so')
+    board = cpy.CoinesBoard()
 
-    print('COINES library - %s' %(board.coines_lib_version))
-    print('coinespy version - %s' %(BST.__version__))
+    print('coinespy version - %s' % cpy.__version__)
 
-    board.PCInterfaceConfig(BST.PCINTERFACE.USB)
-    if board.ERRORCODE != 0:
-        print('Could not connect to board: %d' % (board.ERRORCODE))
+    board.open_comm_interface(COM_INTF)
+
+    if board.error_code != ErrorCodes.COINES_SUCCESS:
+        print(f'Could not connect to board: {board.error_code}')
     else:
-        b_info = board.GetBoardInfo()
-        print('BoardInfo: HW/SW ID: ' + hex(b_info.HardwareId) + '/' + hex(b_info.SoftwareId))
-        board.ClosePCInterface()
+        b_info = board.get_board_info()
+        print(f"coines lib version: {board.lib_version}")
+        print(f'BoardInfo: HW/SW ID: {hex(b_info.HardwareId)}/{hex(b_info.SoftwareId)}')
+        board.close_comm_interface()

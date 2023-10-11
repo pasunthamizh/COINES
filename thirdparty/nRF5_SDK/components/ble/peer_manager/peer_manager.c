@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2015 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -83,6 +83,7 @@ static pm_peer_id_t                  m_highest_ranked_peer;             /**< The
 static pm_evt_handler_t              m_evt_handlers[PM_MAX_REGISTRANTS];/**< The subscribers to Peer Manager events, as registered through @ref pm_register. */
 static uint8_t                       m_n_registrants;                   /**< The number of event handlers registered through @ref pm_register. */
 
+static ble_conn_state_user_flag_id_t m_flag_conn_excluded = BLE_CONN_STATE_USER_FLAG_INVALID;  /**< User flag indicating whether a connection is excluded from being handled by the Peer Manager. */
 
 /**@brief Function for sending a Peer Manager event to all subscribers.
  *
@@ -106,6 +107,12 @@ static void rank_vars_update(void)
                                             &m_current_highest_peer_rank,
                                             NULL,
                                             NULL);
+
+    if (err_code == NRF_ERROR_NOT_FOUND)
+    {
+        m_highest_ranked_peer = PM_PEER_ID_INVALID;
+        m_current_highest_peer_rank = 0;
+    }
 
     m_peer_rank_initialized = ((err_code == NRF_SUCCESS) || (err_code == NRF_ERROR_NOT_FOUND));
 }
@@ -218,8 +225,6 @@ void pm_pdb_evt_handler(pm_evt_t * p_pdb_evt)
                 pm_delete_all_evt.conn_handle = BLE_CONN_HANDLE_INVALID;
                 pm_delete_all_evt.params.peers_delete_failed_evt.error
                                               = p_pdb_evt->params.peer_delete_failed.error;
-                pm_delete_all_evt.params.peers_delete_failed_evt.fds_error
-                                              = p_pdb_evt->params.peer_delete_failed.fds_error;
 
                 send_evt = false;
 
@@ -268,6 +273,18 @@ void pm_gcm_evt_handler(pm_evt_t * p_gcm_evt)
 }
 
 
+/**@brief Event handler for events from the GATTS Cache Manager module.
+ *        This handler is extern in GATTS Cache Manager.
+ *
+ * @param[in]  p_gscm_evt  The incoming GATTS Cache Manager event.
+ */
+void pm_gscm_evt_handler(pm_evt_t * p_gscm_evt)
+{
+    // Forward the event to all registered Peer Manager event handlers.
+    evt_send(p_gscm_evt);
+}
+
+
 /**@brief Event handler for events from the ID Manager module.
  *        This function is registered in the ID Manager.
  *
@@ -279,6 +296,41 @@ void pm_im_evt_handler(pm_evt_t * p_im_evt)
     evt_send(p_im_evt);
 }
 
+
+
+static bool is_conn_handle_excluded(ble_evt_t const * p_ble_evt)
+{
+    uint16_t conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
+
+    switch (p_ble_evt->header.evt_id)
+    {
+        case BLE_GAP_EVT_CONNECTED:
+        {
+                pm_evt_t pm_conn_config_req_evt;
+                bool is_excluded = false;
+
+                memset(&pm_conn_config_req_evt, 0, sizeof(pm_evt_t));
+                pm_conn_config_req_evt.evt_id      = PM_EVT_CONN_CONFIG_REQ;
+                pm_conn_config_req_evt.peer_id     = PM_PEER_ID_INVALID;
+                pm_conn_config_req_evt.conn_handle = conn_handle;
+
+                pm_conn_config_req_evt.params.conn_config_req.p_peer_params =
+                    &p_ble_evt->evt.gap_evt.params.connected;
+                pm_conn_config_req_evt.params.conn_config_req.p_context = &is_excluded;
+
+                evt_send(&pm_conn_config_req_evt);
+                ble_conn_state_user_flag_set(conn_handle,
+                                             m_flag_conn_excluded,
+                                             is_excluded);
+
+                return is_excluded;
+        }
+
+        default:
+            return ble_conn_state_user_flag_get(conn_handle, m_flag_conn_excluded);
+    }
+}
+
 /**
  * @brief Function for handling BLE events.
  *
@@ -288,6 +340,13 @@ void pm_im_evt_handler(pm_evt_t * p_im_evt)
 static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
 {
     VERIFY_MODULE_INITIALIZED_VOID();
+
+    if (is_conn_handle_excluded(p_ble_evt))
+    {
+        NRF_LOG_DEBUG("Filtering BLE event with ID: 0x%04X targeting 0x%04X connection handle",
+                      p_ble_evt->header.evt_id, p_ble_evt->evt.gap_evt.conn_handle);
+        return;
+    }
 
     im_ble_evt_handler(p_ble_evt);
     sm_ble_evt_handler(p_ble_evt);
@@ -357,6 +416,8 @@ ret_code_t pm_init(void)
     m_peer_rank_initialized = false;
     m_module_initialized    = true;
 
+    m_flag_conn_excluded = ble_conn_state_user_flag_acquire();
+
     // If PM_PEER_RANKS_ENABLED is 0, these variables are unused.
     UNUSED_VARIABLE(m_peer_rank_initialized);
     UNUSED_VARIABLE(m_peer_rank_token);
@@ -411,6 +472,18 @@ ret_code_t pm_conn_secure(uint16_t conn_handle, bool force_repairing)
     }
 
     return err_code;
+}
+
+
+ret_code_t pm_conn_exclude(uint16_t conn_handle, void const * p_context)
+{
+    VERIFY_PARAM_NOT_NULL(p_context);
+
+    bool * p_is_conn_excluded = (bool *) p_context;
+
+    *p_is_conn_excluded = true;
+
+    return NRF_SUCCESS;
 }
 
 
@@ -528,20 +601,14 @@ ret_code_t pm_device_identities_list_set(pm_peer_id_t const * p_peers,
 ret_code_t pm_conn_sec_status_get(uint16_t conn_handle, pm_conn_sec_status_t * p_conn_sec_status)
 {
     VERIFY_MODULE_INITIALIZED();
-    VERIFY_PARAM_NOT_NULL(p_conn_sec_status);
+    return sm_conn_sec_status_get(conn_handle, p_conn_sec_status);
+}
 
-    ble_conn_state_status_t status = ble_conn_state_status(conn_handle);
 
-    if (status == BLE_CONN_STATUS_INVALID)
-    {
-        return BLE_ERROR_INVALID_CONN_HANDLE;
-    }
-
-    p_conn_sec_status->connected      = (status == BLE_CONN_STATUS_CONNECTED);
-    p_conn_sec_status->bonded         = (im_peer_id_get_by_conn_handle(conn_handle) != PM_PEER_ID_INVALID);
-    p_conn_sec_status->encrypted      = ble_conn_state_encrypted(conn_handle);
-    p_conn_sec_status->mitm_protected = ble_conn_state_mitm_protected(conn_handle);
-    return NRF_SUCCESS;
+bool pm_sec_is_sufficient(uint16_t conn_handle, pm_conn_sec_status_t * p_sec_status_req)
+{
+    VERIFY_MODULE_INITIALIZED_BOOL();
+    return sm_sec_is_sufficient(conn_handle, p_sec_status_req);
 }
 
 
@@ -750,7 +817,7 @@ ret_code_t pm_peer_id_list(pm_peer_id_t         * p_peer_list,
 ret_code_t pm_peer_data_load(pm_peer_id_t       peer_id,
                              pm_peer_data_id_t  data_id,
                              void             * p_data,
-                             uint16_t         * p_length)
+                             uint32_t         * p_length)
 {
     VERIFY_MODULE_INITIALIZED();
     VERIFY_PARAM_NOT_NULL(p_data);
@@ -767,7 +834,7 @@ ret_code_t pm_peer_data_load(pm_peer_id_t       peer_id,
 ret_code_t pm_peer_data_bonding_load(pm_peer_id_t             peer_id,
                                      pm_peer_data_bonding_t * p_data)
 {
-    uint16_t length = sizeof(pm_peer_data_bonding_t);
+    uint32_t length = sizeof(pm_peer_data_bonding_t);
     return pm_peer_data_load(peer_id,
                              PM_PEER_DATA_ID_BONDING,
                              p_data,
@@ -777,7 +844,7 @@ ret_code_t pm_peer_data_bonding_load(pm_peer_id_t             peer_id,
 
 ret_code_t pm_peer_data_remote_db_load(pm_peer_id_t        peer_id,
                                        ble_gatt_db_srv_t * p_data,
-                                       uint16_t          * p_length)
+                                       uint32_t          * p_length)
 {
     return pm_peer_data_load(peer_id,
                              PM_PEER_DATA_ID_GATT_REMOTE,
@@ -788,7 +855,7 @@ ret_code_t pm_peer_data_remote_db_load(pm_peer_id_t        peer_id,
 
 ret_code_t pm_peer_data_app_data_load(pm_peer_id_t peer_id,
                                       void       * p_data,
-                                      uint16_t   * p_length)
+                                      uint32_t   * p_length)
 {
     return pm_peer_data_load(peer_id,
                              PM_PEER_DATA_ID_APPLICATION,
@@ -800,7 +867,7 @@ ret_code_t pm_peer_data_app_data_load(pm_peer_id_t peer_id,
 ret_code_t pm_peer_data_store(pm_peer_id_t       peer_id,
                               pm_peer_data_id_t  data_id,
                               void       const * p_data,
-                              uint16_t           length,
+                              uint32_t           length,
                               pm_store_token_t * p_token)
 {
     VERIFY_MODULE_INITIALIZED();
@@ -845,7 +912,7 @@ ret_code_t pm_peer_data_bonding_store(pm_peer_id_t                   peer_id,
 
 ret_code_t pm_peer_data_remote_db_store(pm_peer_id_t              peer_id,
                                         ble_gatt_db_srv_t const * p_data,
-                                        uint16_t                  length,
+                                        uint32_t                  length,
                                         pm_store_token_t        * p_token)
 {
     return pm_peer_data_store(peer_id,
@@ -858,7 +925,7 @@ ret_code_t pm_peer_data_remote_db_store(pm_peer_id_t              peer_id,
 
 ret_code_t pm_peer_data_app_data_store(pm_peer_id_t       peer_id,
                                        void       const * p_data,
-                                       uint16_t           length,
+                                       uint32_t           length,
                                        pm_store_token_t * p_token)
 {
     return pm_peer_data_store(peer_id,
@@ -941,6 +1008,7 @@ ret_code_t pm_peer_new(pm_peer_id_t           * p_new_peer_id,
 
         // NRF_ERROR_STORAGE_FULL, if no space in flash.
         // NRF_ERROR_BUSY,         if flash filesystem was busy.
+        // NRF_ERROR_INVALID_ADDR, if bonding data is unaligned.
         // NRF_ERROR_INTENRAL,     on internal error.
         return err_code;
     }
@@ -1011,7 +1079,7 @@ ret_code_t pm_peer_ranks_get(pm_peer_id_t * p_highest_ranked_peer,
     pm_peer_id_t         peer_id      = pds_next_peer_id_get(PM_PEER_ID_INVALID);
     uint32_t             peer_rank    = 0;
     //lint -save -e65 -e64
-    uint16_t             length       = sizeof(peer_rank);
+    uint32_t             length       = sizeof(peer_rank);
     pm_peer_data_t       peer_data    = {.p_peer_rank  = &peer_rank};
     //lint -restore
     ret_code_t           err_code     = pds_peer_data_read(peer_id,

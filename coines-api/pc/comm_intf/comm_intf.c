@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -16,9 +16,18 @@
 /*********************************************************************/
 /* system header files */
 /*********************************************************************/
+#ifdef PLATFORM_LINUX
+/* To enable usleep in glibc */
+#define _DEFAULT_SOURCE
+#endif
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef PLATFORM_LINUX
+#include <unistd.h>
+#endif
 
 /*********************************************************************/
 /* own header files */

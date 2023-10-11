@@ -1,12 +1,16 @@
 TARGET ?= PC
+
+# COMPort name to download the binary
+COM_PORT ?= 
+
 # On using Software reset API(coines_soft_reset()) from COINES, After reset device jumps to the address specified in APP_START_ADDRESS.
 APP_START_ADDRESS ?=0x00030000
 
 OBJ_DIR = build/$(TARGET)
 
-ifneq ($(TARGET),$(filter $(TARGET),PC MCU_APP20 MCU_APP30))
+ifneq ($(TARGET),$(filter $(TARGET),PC MCU_APP20 MCU_APP30 MCU_NICLA MCU_APP31))
     $(info Unsupported 'TARGET' : $(TARGET))
-    $(info Supported 'TARGET's : PC, MCU_APP20, MCU_APP30)
+    $(info Supported 'TARGET's : PC, MCU_APP20, MCU_APP30, MCU_NICLA, MCU_APP31)
     $(error Exit)
 endif
 
@@ -27,8 +31,8 @@ else
 CFLAGS += -D DEBUG -U NDEBUG
 endif
 
-################################ MCU Target common - APP2.0,APP3.0 ############################
-ifeq ($(TARGET),$(filter $(TARGET),MCU_APP20 MCU_APP30))
+################################ MCU Target common - APP2.0,APP3.0,NICLA,MCU_APP31 ############################
+ifeq ($(TARGET),$(filter $(TARGET),MCU_APP20 MCU_APP30 MCU_NICLA MCU_APP31))
     CFLAGS += -std=c99 -mthumb -mabi=aapcs -mcpu=cortex-m4 -c $(OPT) -g3 -Wall -D$(TARGET) -DAPP_START_ADDRESS=$(APP_START_ADDRESS) -ffunction-sections -fdata-sections
     CPPFLAGS += -mthumb -mabi=aapcs -mcpu=cortex-m4 -c $(OPT) -g3 -Wall -D$(TARGET) -ffunction-sections -fdata-sections
 
@@ -44,6 +48,11 @@ endif
 #############################################################################################
 
 ifeq ($(TARGET),PC)
+ifeq ($(COINES_BACKEND), COINES_BRIDGE)
+CFLAGS += -DCOINES_BRIDGE
+else
+CFLAGS += -DCOINES_LEGACY
+endif
 CFLAGS += -std=gnu99 -c -g3 $(OPT) -D$(TARGET) -Wall
 CPPFLAGS += -c -g3 $(OPT) -D$(TARGET) -Wall
 CROSS_COMPILE =
@@ -54,10 +63,17 @@ CC = $(CROSS_COMPILE)gcc
 CXX = $(CROSS_COMPILE)g++
 AR = $(CROSS_COMPILE)ar
 OBJCOPY = $(CROSS_COMPILE)objcopy
-APP_SWITCH = $(COINES_INSTALL_PATH)/tools/app_switch/app_switch
+APP_SWITCH_PATH = $(COINES_INSTALL_PATH)/tools/app_switch
+
 ifeq ($(OS),Windows_NT)
     IS_CC_FOUND = $(shell where $(CC))
-    IS_APP_SWITCH_FOUND = $(shell which $(APP_SWITCH))
+    # Check whether app_switch executable is available or not
+    ifneq ($(findstring app_switch.exe, $(wildcard $(APP_SWITCH_PATH)/*)),)
+        IS_APP_SWITCH_FOUND = $(APP_SWITCH_PATH)
+    else
+        IS_APP_SWITCH_FOUND = 
+    endif
+
     $(info Platform: Windows)
     PLATFORM = PLATFORM_WINDOWS
     LIB_PATH ?= $(COINES_INSTALL_PATH)/coines-api/pc/comm_driver/libusb-1.0/mingw_lib
@@ -90,14 +106,40 @@ else
     IS_APP_SWITCH_FOUND = $(shell which $(APP_SWITCH))
     $(info Platform: Linux / macOS)
     PLATFORM = PLATFORM_LINUX
-    DRIVER = LIBUSB_DRIVER
+
+    ifeq ($(COINES_BACKEND),COINES_BRIDGE)
+        ifeq ($(shell uname -s),Linux)
+            HOST_OS = Linux
+        else ifeq ($(shell uname -s),Darwin)
+            HOST_OS = Darwin
+        endif
+        ifeq ($(shell uname -m),x86_64)
+            HOST_ARCH = x64
+        else ifneq ($(filter %86 ,$(shell uname -m)),)
+            HOST_ARCH = x86
+        else ifeq ($(shell uname -m),arm64)
+            HOST_ARCH = arm64
+            LIBPATHS += /opt/homebrew/lib   
+        endif
+
+        DRIVER = LIBUSBP_DRIVER
+
+        LIB_PATH = $(COINES_INSTALL_PATH)/coines-api/pc/serial_com/libusbp-1.0
+        LIB_PATH_ARCH += $(LIB_PATH)/$(HOST_OS)/$(HOST_ARCH)
+    else
+        DRIVER = LIBUSB_DRIVER
+        ifeq ($(shell uname -m),arm64)
+            LIBPATHS += /opt/homebrew/lib   
+        endif
+    endif
     RM = rm -rf
     DFU = dfu-util
     MKDIR = mkdir -p
     syspath = $(subst /,/,$(1))
 endif
 
-
+APP_SWITCH = $(COINES_INSTALL_PATH)/tools/app_switch/app_switch
+OPEN_OCD = $(COINES_INSTALL_PATH)/tools/openocd/xpack-openocd-0.11.0-4/bin/openocd
 
 #################################  Common - PC and MCU  #####################################
 
@@ -124,11 +166,7 @@ PROJ_NAME = $(basename $(EXAMPLE_FILE))
 EXE =  $(PROJ_NAME)$(EXT)
 BIN =  $(PROJ_NAME).bin
 HEX =  $(PROJ_NAME).hex
-APPSWITCH =appswtich
-SENSOR = $(SHUTTLE_BOARD)
-ifneq ($(SENSOR),)
-include $(COINES_INSTALL_PATH)/examples/sensors.mk
-endif
+APPSWITCH =appswitch
 
 INCLUDEPATHS += $(COINES_INSTALL_PATH)/coines-api
 
@@ -140,12 +178,15 @@ $(COINES_INSTALL_PATH)/coines-api \
 
 ifeq ($(TARGET),MCU_APP20)
     DEVICE_ID = -,108c:ab2d
-
-        ifeq ($(LOCATION),RAM)
-            LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app20/mcu_app20_ram.ld
-        else
-            LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app20/mcu_app20_flash.ld
-        endif
+        	ifeq ($(LOCATION),RAM)
+            	LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app20/mcu_app20_ram.ld
+        	else
+        		ifeq ($(EXAMPLE_FILE),coines_bridge_firmware.c)
+					LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app20/mcu_app20_flash_coines_bridge.ld
+				else
+            		LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app20/mcu_app20_flash.ld
+            	endif
+        	endif
 
     LDFLAGS +=  -T $(LD_SCRIPT)
     LIBS += coines-mcu_app20
@@ -172,6 +213,39 @@ ifeq ($(TARGET),MCU_APP30)
    
 endif
 
+################################ MCU Target - NICLA specific #################################
+
+ifeq ($(TARGET),MCU_NICLA)
+  
+    LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_nicla/linker_scripts/mcu_nicla_flash_ble.ld
+    CFLAGS +=  -mfloat-abi=hard -mfpu=fpv4-sp-d16
+    CPPFLAGS +=  -mfloat-abi=hard -mfpu=fpv4-sp-d16
+    LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16 -T $(LD_SCRIPT)
+
+    LDFLAGS += -Wl,--whole-archive -L $(COINES_INSTALL_PATH) -lcoines-mcu_nicla -Wl,--no-whole-archive
+    ARTIFACTS = $(EXE) $(BIN) $(HEX)
+
+endif
+
+################################ MCU Target - APP3.1 specific #################################
+
+ifeq ($(TARGET),MCU_APP31)
+    DEVICE_ID = -,108c:ab39
+        ifeq ($(LOCATION),RAM)
+            LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app31/linker_scripts/mcu_app31_ram_ble.ld
+        else
+            LD_SCRIPT = $(COINES_INSTALL_PATH)/coines-api/mcu_app31/linker_scripts/mcu_app31_flash_ble.ld
+        endif
+    CFLAGS +=  -mfloat-abi=hard -mfpu=fpv4-sp-d16
+    CPPFLAGS +=  -mfloat-abi=hard -mfpu=fpv4-sp-d16
+    LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16 -T $(LD_SCRIPT)
+
+    # Doesn't work for some reason !
+    # LIBS += coines-mcu_app31
+    LDFLAGS += -Wl,--whole-archive -L $(COINES_INSTALL_PATH) -lcoines-mcu_app31 -Wl,--no-whole-archive
+    ARTIFACTS = $(EXE) $(BIN) $(HEX)
+
+endif
 ################################ PC Target - Windows,Linux/macOS ############################
 
 ifeq ($(TARGET),PC)
@@ -189,6 +263,17 @@ ifeq ($(TARGET),PC)
 
     ifeq ($(DRIVER),LIBUSB_DRIVER)
         LIBS += usb-1.0
+    endif
+
+    ifeq ($(DRIVER),LIBUSBP_DRIVER)
+        ifeq ($(HOST_OS),Linux)
+            EXTRA_LIBS += -l:libusbp-1.a
+            EXTRA_LIBS += -ludev
+        endif
+        ifeq ($(HOST_OS),Darwin)
+            EXTRA_LIBS += -framework IOKit -framework CoreFoundation
+            EXTRA_LIBS += $(LIB_PATH_ARCH)/libusbp-1.a
+        endif
     endif
 
     ARTIFACTS = $(EXE)
@@ -250,6 +335,9 @@ $(HEX): $(EXE)
 	@$(OBJCOPY) -O ihex $< $@
 
 $(EXE): $(OBJ_DIR) $(C_OBJS) $(CPP_OBJS) $(ASM_OBJS)
+ifeq ($(TARGET),PC)
+	@$(MAKE) -s -C  $(COINES_INSTALL_PATH)/coines-api clean_pc
+endif
 	@echo [ MAKE ] coines-api
 	@$(MAKE) -s -C  $(COINES_INSTALL_PATH)/coines-api TARGET=$(TARGET) OPT=$(OPT) DEBUG=$(DEBUG) COINES_BACKEND=$(COINES_BACKEND)
 	@echo [ LD ] $@
@@ -272,27 +360,34 @@ $(OBJ_DIR)/%.cpp.o: %.cpp
 ifeq ($(IS_APP_SWITCH_FOUND),)
 $(APPSWITCH):
 	@echo "Building app_switch"
-	@$(MAKE) -s -C  $(COINES_INSTALL_PATH)/tools/app_switch 
-else
-$(APPSWITCH):
+	@$(MAKE) -s -C  $(COINES_INSTALL_PATH)/tools/app_switch clean-all
+	@$(MAKE) -s -C  $(COINES_INSTALL_PATH)/tools/app_switch
 endif	
 
-ifeq ($(TARGET),$(filter $(TARGET),MCU_APP20 MCU_APP30))
+ifeq ($(TARGET),$(filter $(TARGET),MCU_APP20 MCU_APP30 MCU_APP31))
 download: $(APPSWITCH) $(BIN)
-	@$(APP_SWITCH) usb_dfu_bl
+	@$(APP_SWITCH) usb_dfu_bl $(COM_PORT)
 	@echo [ DFU ] $<
 	@$(DFU) --device $(DEVICE_ID) -a $(LOCATION) -D $(BIN) -R
+endif
+ifeq ($(TARGET),$(filter $(TARGET),MCU_NICLA))
+download: $(HEX)
+	@"$(OPEN_OCD)" -d2 -s "$(LIB_PATH)" -f interface/cmsis-dap.cfg -c "transport select swd; adapter speed 1000" -f target/nrf52.cfg -c "telnet_port disabled; init; reset init; halt; adapter speed 10000;" -c "program $(HEX)" -c "reset run; shutdown"
 endif
 
 run:
 	@$(APP_SWITCH) example
 
 clean:
+ifneq ($(wildcard $(OBJ_DIR)), )
 	@echo "Cleaning..."
 	@$(RM) $(ARTIFACTS) $(call syspath,$(OBJ_DIR))
+endif
 
 clean-all: clean
+ifneq ($(wildcard $(OBJ_DIR)), )
 	@$(RM) build $(PROJ_NAME) $(PROJ_NAME).elf $(PROJ_NAME).exe $(PROJ_NAME).bin
 	@$(MAKE) -s -C  $(COINES_INSTALL_PATH)/coines-api clean
-
+endif
+	
 .PHONY: all clean clean-all download $(ARTIFACTS) appswitch

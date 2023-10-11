@@ -1,14 +1,13 @@
 /**
- * Copyright (C) 2020 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * @file        stream.c
  *
- * @brief		Sensor data streaming over usb.
+ * @brief       Sensor data streaming over usb.
  *
  */
-
 /*!
  * @ingroup APPLICATION
  *
@@ -26,60 +25,72 @@
 #include <string.h>
 #include <math.h>
 
-#include "decoder.h"
-#include "coines.h"
-
 /**********************************************************************************/
 /* own header files */
 /**********************************************************************************/
+#include "coines.h"
 #include "stream.h"
+#include "decoder.h"
+#include "job_queue.h"
+#include "mbuf.h"
 
 /**********************************************************************************/
 /* local macro definitions */
 /**********************************************************************************/
-/*! Macro used the free the memory allocated by RTOS */
-#define STREAM_SAFE_FREE(p)    if (p) { free(p); (p) = NULL; }
 
 /**********************************************************************************/
 /* constant definitions */
 /**********************************************************************************/
 static const enum coines_comm_intf comm_intf = COINES_COMM_INTF_USB;
+
 /**********************************************************************************/
 /* global variables */
 /**********************************************************************************/
 /*!  To store the GCD time, mode and the type of streaming */
-stream_settings_t stream_settings = { .GST_period_us = 0, .ts_mode = STREAM_NO_TIMESTAMP, .stream_mode =
-		STREAM_MODE_POLLING };
+stream_settings_t stream_settings =
+{ .GST_period_us = 0, .ts_mode = STREAM_NO_TIMESTAMP, .stream_mode = STREAM_MODE_POLLING };
 
 /*! Gives how many active sensor streaming in progress */
 uint32_t stream_active_count = 0;
 
 /*! Holds steam parameters for each sensor */
 stream_descriptor_t stream_descriptors[STREAM_MAX_COUNT];
+
 /*! Holds FIFO stream parameters */
 stream_fifo_descriptor_t stream_fifo_descriptors;
-/*! Array used to update the stream/ cmd responses */
-uint8_t stream_packet_buffer[STREAM_MAX_PACKET_DATA_SIZE];
 
+/*! Buffer used to hold the streaming response data */
+extern uint8_t streaming_resp_buff[];
+
+#if !defined(MCU_APP20)
 extern uint8_t multi_io_map[COINES_SHUTTLE_PIN_MAX];
+#endif
+
+#if defined(MCU_APP20)
+extern int32_t get_hw_pin(enum coines_multi_io_pin );
+#endif
+
+extern bool int_pin_usage_native_emulated[COINES_SHUTTLE_PIN_MAX];
+
+bool bhi_streaming_configured = false;
+
+extern void mbuf_user_evt_handler(mbuf_evt_type_t event);
 
 /**********************************************************************************/
 /* static variables */
 /**********************************************************************************/
 /*! Holds the interrupt line state */
-static uint8_t stream_feature_line_state[STREAM_MAX_IO_COUNT];
-
-/*! Gives whether streaming is in progress or not, updated by start and stop stream API's */
-static uint8_t streaming_running = 0;
+static volatile uint8_t stream_feature_line_state[COINES_SHUTTLE_PIN_MAX];
 
 /*! Updated on timer0 expire */
-static volatile uint8_t poll_streaming_data = 0;
-
-/*! Updated when interrupt is triggered */
-static volatile uint8_t int_streaming_data = 0;
+static volatile uint8_t poll_stream_triggered = 0;
 
 /*! Holds active interrupt pin number */
+/*lint -e551 */
 static uint32_t active_pins = 0;
+
+/*! Used to store the trasmit data */
+static uint8_t tx_buf[DECODER_MAX_PKT_SZ] = { 0 };
 
 /**********************************************************************************/
 /* static function declaration */
@@ -87,23 +98,22 @@ static uint32_t active_pins = 0;
 
 static int8_t sensor_i2c_read(uint8_t i2c_addr, uint8_t reg_addr, uint8_t *reg_data, uint32_t length)
 {
-	return coines_read_i2c(COINES_I2C_BUS_0, i2c_addr, reg_addr, reg_data, length);
+    return coines_read_i2c(COINES_I2C_BUS_0, i2c_addr, reg_addr, reg_data, (uint16_t)length);
 }
 
 static int8_t sensor_i2c_write(uint8_t i2c_addr, uint8_t reg_addr, uint8_t *reg_data, uint32_t length)
 {
-	return coines_write_i2c(COINES_I2C_BUS_0, i2c_addr, reg_addr, reg_data, length);
+    return coines_write_i2c(COINES_I2C_BUS_0, i2c_addr, reg_addr, reg_data, (uint16_t)length);
 }
-
 
 static int8_t sensor_spi_read(uint8_t spi_cs, uint8_t reg_addr, uint8_t *reg_data, uint32_t length)
 {
-	return coines_read_spi(COINES_SPI_BUS_0, spi_cs, reg_addr, reg_data, length);
+    return coines_read_spi(COINES_SPI_BUS_0, spi_cs, reg_addr, reg_data, (uint16_t)length);
 }
 
 static int8_t sensor_spi_write(uint8_t spi_cs, uint8_t reg_addr, uint8_t *reg_data, uint32_t length)
 {
-	return coines_write_spi(COINES_SPI_BUS_0, spi_cs, reg_addr, reg_data, length);
+    return coines_write_spi(COINES_SPI_BUS_0, spi_cs, reg_addr, reg_data, (uint16_t)length);
 }
 
 /*!
@@ -115,6 +125,7 @@ static int8_t sensor_spi_write(uint8_t spi_cs, uint8_t reg_addr, uint8_t *reg_da
  * @return      : None
  */
 static void stream_allocate_buffers(stream_descriptor_t *stream_p);
+
 /*!
  *
  * @brief       : API will deallocate the buffer for poll/interrupt from RTOS
@@ -124,6 +135,7 @@ static void stream_allocate_buffers(stream_descriptor_t *stream_p);
  * @return      : None
  */
 static void stream_deallocate_buffers(stream_descriptor_t *stream_p);
+
 /*!
  *
  * @brief       : API will allocates the buffer for fifo streaming from RTOS
@@ -133,6 +145,7 @@ static void stream_deallocate_buffers(stream_descriptor_t *stream_p);
  * @return      : None
  */
 static void stream_allocate_fifo_buffers(stream_fifo_descriptor_t *fifo_stream_p);
+
 /*!
  *
  * @brief       : API will deallocate the buffer for fifo streaming from RTOS
@@ -142,6 +155,7 @@ static void stream_allocate_fifo_buffers(stream_fifo_descriptor_t *fifo_stream_p
  * @return      : None
  */
 static void stream_deallocate_fifo_buffers(stream_fifo_descriptor_t *fifo_stream_p);
+
 /*!
  *
  * @brief       : This API will gives the index position at which the read data has to update in response
@@ -151,915 +165,1001 @@ static void stream_deallocate_fifo_buffers(stream_fifo_descriptor_t *fifo_stream
  * @return      : Position in which read data to be updated
  */
 static uint16_t stream_calculate_offset(uint8_t id);
+
 /*!
  *
  * @brief       : This API will be called on polling timer expire
- * 
+ *
  * @return      : None
  */
 static void polling_event_handler(void);
+
 /*!
  *
  * @brief       : This API will be called on data ready interrupt
- * 
- * @param[in]   : pin - gpio pin
- * @param[in]   : polarity of the gpio pin
- * 
+ *
+ * @param[in]   : timestamp in nanosecond
+ * @param[in]   : multiio pin
+ * @param[in]   : polarity of the multiio pin
+ *
  * @return      : None
  */
-static void handler_drdy_int_event(uint32_t param1, uint32_t param2);
+static void handler_drdy_int_event(uint64_t timestamp, uint32_t multiio_pin, uint32_t multiio_pin_polarity);
+
+/*! Inline function used to free the memory allocated by RTOS */
+static void inline  stream_safe_free(uint8_t **p)
+{
+    if (*p)
+    {
+        free(*p);
+        (*p) = NULL;
+    }
+}
 
 /**********************************************************************************/
 /* functions                                                                      */
 /**********************************************************************************/
+
 /*!
  *
  * @brief       : This API will gives the index position at which the read data has to update in response
  */
 static uint16_t stream_calculate_offset(uint8_t id)
 {
-	uint8_t inx;
-	uint16_t data_size = 0;
-	for (inx = 0; inx < id; inx++)
-		data_size += (uint16_t)stream_descriptors[inx].total_data_size;
+    uint8_t inx;
+    uint16_t data_size = 0;
 
-	return data_size;
+    for (inx = 0; inx < id; inx++)
+    {
+        data_size += (uint16_t)stream_descriptors[inx].total_data_size;
+    }
+
+    return data_size;
 }
+
 /*!
  *
  * @brief       : This API will stream the fifo send response
  */
 static void streaming_fifo_send_response(stream_fifo_descriptor_t *stream_p)
 {
-	uint32_t tx_data_size;
-	uint8_t *work_p;
-	uint8_t tx_buf[64];
-	uint8_t packet_index = 0;
-	uint32_t size_remaining = 0;
-	uint32_t idx;
-	uint8_t data_terminating_pos;
-	uint32_t pos;
+    uint32_t tx_data_size;
+    uint8_t *work_p;
+    uint8_t packet_index;
+    uint32_t size_remaining;
+    uint32_t idx;
+    uint8_t data_terminating_pos;
+    uint32_t pos;
 
-	tx_data_size = stream_p->number_bytes;
+    memset(tx_buf, 0, sizeof(tx_buf));
 
-	work_p = stream_packet_buffer;
+    tx_data_size = stream_p->number_bytes;
 
-	memcpy(work_p, stream_p->fifo_data, stream_p->number_bytes);
-	work_p += stream_p->number_bytes;
+    work_p = streaming_resp_buff;
 
-	if (stream_p->intline_count != 0)
-	{
-		memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
-	}
+    memcpy(work_p, stream_p->fifo_data, stream_p->number_bytes);
+    work_p += stream_p->number_bytes;
 
-	packet_index = 1;
-	tx_buf[0] = DECODER_HEADER_VALUE;
+    if (stream_p->intline_count != 0)
+    {
+        memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
+    }
 
-	tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    // Success status
-	tx_buf[4] = 0x88;           // Response identifier for Sync. Data read
-	pos = 0;
-	for (idx = 0, size_remaining = tx_data_size; idx < tx_data_size; idx = idx + 51)
-	{
+    packet_index = 1;
+    tx_buf[0] = DECODER_HEADER_VALUE;
 
-		if (size_remaining > 51)
-		{
-			//tx_buf[2] = packet_index | 0x80;
-			tx_buf[2] = packet_index;
-			size_remaining -= 51;
-			tx_buf[1] = 51 + 5 + 2; /* Data size(51) + Response header size(5) + Carriage and line feed size 2*/
-			data_terminating_pos = 51 + 5;
-			memcpy(&tx_buf[5], &stream_packet_buffer[pos], 51);
-			pos = pos + 51;
+    tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    /* Success status */
+    tx_buf[4] = DECODER_STRM_FIFO_POLL_RSP_ID;    /* Response identifier for Sync. Data read */
+    pos = 0;
+    for (idx = 0, size_remaining = tx_data_size; idx < tx_data_size; idx = idx + DECODER_STRM_FIFO_POLL_RSP_PL_SZ)
+    {
 
-		} else
-		{
-			tx_buf[2] = packet_index;
-			tx_buf[1] = (uint8_t)(size_remaining + 5 + 2); /* Data size(51) + Response header size(5) + Carriage and line feed size 2*/
-			/* Update the data in response packet */
-			memcpy(&tx_buf[5], &stream_packet_buffer[pos], size_remaining);
-			data_terminating_pos = (uint8_t)(size_remaining + 5);
-		}
+        if (size_remaining > DECODER_STRM_FIFO_POLL_RSP_PL_SZ)
+        {
+            tx_buf[2] = packet_index;
+            size_remaining -= DECODER_STRM_FIFO_POLL_RSP_PL_SZ;
+            tx_buf[1] =
+                (uint8_t)(DECODER_STRM_FIFO_POLL_RSP_PL_SZ + DECODER_STRM_FIFO_POLL_RSP_OVERHEAD +
+                          DECODER_END_INDICATORS_SIZE);
+            data_terminating_pos = DECODER_STRM_FIFO_POLL_RSP_PL_SZ + DECODER_STRM_FIFO_POLL_RSP_OVERHEAD;
+            memcpy(&tx_buf[5], &streaming_resp_buff[pos], DECODER_STRM_FIFO_POLL_RSP_PL_SZ);
+            pos = pos + DECODER_STRM_FIFO_POLL_RSP_PL_SZ;
 
-		tx_buf[data_terminating_pos] = DECODER_CR_MACRO;
-		tx_buf[data_terminating_pos + 1] = DECODER_LF_MACRO;
-		/* transmit to host*/
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
-		packet_index++;
+        }
+        else
+        {
+            tx_buf[2] = packet_index;
+            tx_buf[1] = (uint8_t)(size_remaining + DECODER_STRM_FIFO_POLL_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE);
 
-	}
-	memset(stream_packet_buffer, 0, tx_data_size);
+            /* Update the data in response packet */
+            memcpy(&tx_buf[5], &streaming_resp_buff[pos], size_remaining);
+            data_terminating_pos = (uint8_t)(size_remaining + DECODER_STRM_FIFO_POLL_RSP_OVERHEAD);
+        }
+
+        tx_buf[data_terminating_pos] = DECODER_CR_MACRO;
+        tx_buf[data_terminating_pos + 1] = DECODER_LF_MACRO;
+
+        /* transmit to host*/
+        coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+        packet_index++;
+
+    }
+
+    memset(streaming_resp_buff, 0, tx_data_size);
 }
+
 /*!
  *
  * @brief       : This API will stream the polling send response
  */
 static void streaming_polling_send_response(stream_descriptor_t *stream_p)
 {
-	uint16_t sensor_identifier;
-	uint32_t tx_data_size;
-	uint8_t *work_p = NULL;
-	uint8_t tx_buf[64] = { 0 };
-	stream_chunkinfo_t *chunk_p;
+    uint16_t sensor_identifier;
+    uint32_t tx_data_size;
+    uint8_t *work_p;
+    stream_chunkinfo_t *chunk_p;
 
-	uint8_t packet_index = 0;
-	uint8_t packetstosend = 0;
-	uint8_t data_terminating_pos;
-	uint8_t datatosend = 0;
-	uint32_t size_remain = 0;
+    uint8_t packet_index;
+    uint8_t packetstosend = 0;
+    uint8_t data_terminating_pos;
+    uint8_t datatosend = 0;
+    uint32_t size_remain;
 
-	sensor_identifier = (uint16_t) (1 << stream_p->channel_id);
+    memset(tx_buf, 0, sizeof(tx_buf));
 
-	tx_data_size = stream_p->total_data_size;
+    sensor_identifier = (uint16_t) (1 << stream_p->channel_id);
 
-	work_p = stream_packet_buffer;
+    tx_data_size = stream_p->total_data_size;
 
-	for (uint8_t i = 0; i < stream_p->chunk_count; i++)
-	{
-		chunk_p = &stream_p->chunks[i];
-		memcpy(work_p, chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
-		work_p += chunk_p->num_bytes_to_read;
-	}
+    work_p = streaming_resp_buff;
 
-	if (stream_p->intline_count != 0)
-	{
-		memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
-		work_p += stream_p->intline_count;
-	}
+    for (uint8_t i = 0; i < stream_p->chunk_count; i++)
+    {
+        chunk_p = &stream_p->chunks[i];
+        memcpy(work_p, chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
+        work_p += chunk_p->num_bytes_to_read;
+    }
 
-	// Adding sensor identifier at the end
-	*work_p++ = (uint8_t) (sensor_identifier >> 8);
-	*work_p++ = (uint8_t) (sensor_identifier & 0xFF);
-	tx_data_size += 2;
+    if (stream_p->intline_count != 0)
+    {
+        memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
+        work_p += stream_p->intline_count;
+    }
 
-	if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
-	{
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 40);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 32);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 24);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 16);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 8);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us);
-		tx_data_size += 6;
-	}
+    /* Adding sensor identifier at the end */
+    *work_p++ = (uint8_t) (sensor_identifier >> 8);
+    *work_p++ = (uint8_t) (sensor_identifier & 0xFF);
+    tx_data_size += 2;
 
-	if (tx_data_size > 51)
-	{
-		packetstosend = (uint8_t) ceil((double) tx_data_size / 51);
-	} else
-	{
-		packetstosend = 1;
-	}
+    if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
+    {
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 40);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 32);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 24);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 16);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 8);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us);
+        tx_data_size += 6;
+    }
 
-	tx_buf[0] = DECODER_HEADER_VALUE;
-	tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    // Success status
-	tx_buf[4] = 0x87;           // Response identifier for Sync. Data read
+    if (tx_data_size > DECODER_STRM_POLL_RSP_PL_SZ)
+    {
+        packetstosend = (uint8_t) ceil((double) tx_data_size / DECODER_STRM_POLL_RSP_PL_SZ);
+    }
+    else
+    {
+        packetstosend = 1;
+    }
 
-	packet_index = 1;
-	size_remain = tx_data_size;
+    tx_buf[0] = DECODER_HEADER_VALUE;
+    tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    /* Success status */
+    tx_buf[4] = DECODER_STRM_POLL_RSP_ID;         /* Response identifier for Sync. Data read */
 
-	while (packetstosend > 0)
-	{
-		if (size_remain > 51)
-		{
-			tx_buf[2] = packet_index | 0x80;
-			datatosend = 51;
-			size_remain -= 51;
-			data_terminating_pos = 51 + 5;
-		} else
-		{
-			tx_buf[2] = packet_index;
-			datatosend = (uint8_t)size_remain;
-			data_terminating_pos = (uint8_t)(size_remain + 5);
-		}
+    packet_index = 1;
+    size_remain = tx_data_size;
 
-		tx_buf[1] = datatosend + 5 + 2; /* Data size(51) + Response header size(5) + Carriage and line feed size 2*/
+    while (packetstosend > 0)
+    {
+        if (size_remain > DECODER_STRM_POLL_RSP_PL_SZ)
+        {
+            tx_buf[2] = packet_index | 0x80;
+            datatosend = DECODER_STRM_POLL_RSP_PL_SZ;
+            size_remain -= DECODER_STRM_POLL_RSP_PL_SZ;
+            data_terminating_pos = DECODER_STRM_POLL_RSP_PL_SZ + DECODER_STRM_POLL_RSP_OVERHEAD;
+        }
+        else
+        {
+            tx_buf[2] = packet_index;
+            datatosend = (uint8_t)size_remain;
+            data_terminating_pos = (uint8_t)(size_remain + DECODER_STRM_POLL_RSP_OVERHEAD);
+        }
 
-		memcpy(&tx_buf[5], &stream_packet_buffer[(packet_index - 1) * 51], datatosend);
+        tx_buf[1] = datatosend + DECODER_STRM_POLL_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE;
 
-		tx_buf[data_terminating_pos] = DECODER_CR_MACRO;
-		tx_buf[data_terminating_pos + 1] = DECODER_LF_MACRO;
+        memcpy(&tx_buf[5], &streaming_resp_buff[(packet_index - 1) * DECODER_STRM_POLL_RSP_PL_SZ], datatosend);
 
-		packetstosend--;
-		packet_index++;
+        tx_buf[data_terminating_pos] = DECODER_CR_MACRO;
+        tx_buf[data_terminating_pos + 1] = DECODER_LF_MACRO;
 
-		/* transmit to host*/
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
-	}
+        packetstosend--;
+        packet_index++;
 
-	memset(stream_packet_buffer, 0, tx_data_size);
+        /* transmit to host*/
+        coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+    }
+
+    memset(streaming_resp_buff, 0, tx_data_size);
 }
+
 /*!
  *
  * @brief       : This API will stream the polling old send response
  */
 static void streaming_polling_old_send_response(uint16_t identifier)
 {
-	uint8_t *work_p = stream_packet_buffer;
-	uint8_t tx_buf[64];
-	stream_chunkinfo_t *chunk_p;
-	uint8_t idx = 0;
-	stream_descriptor_t *stream_p = stream_descriptors;
-	uint16_t total_data_size = 0;
-	uint16_t size_remaining = 0;
-	uint8_t packet_index = 0;
-	uint8_t data_terminating_pos = 0;
+    uint8_t *work_p = streaming_resp_buff;
+    stream_chunkinfo_t *chunk_p;
+    uint8_t idx;
+    stream_descriptor_t *stream_p = stream_descriptors;
+    uint16_t total_data_size = 0;
+    uint16_t size_remaining;
+    uint8_t packet_index;
+    uint8_t data_terminating_pos = 0;
 
-	uint16_t pos = 0;
+    uint16_t pos = 0;
 
-	for (idx = 0; idx < stream_active_count;)
-	{
-		if (((identifier) & (1 << idx)) != 0)
-		{
-			stream_p = &stream_descriptors[idx];
-			pos = stream_calculate_offset(idx);
+    memset(tx_buf, 0, sizeof(tx_buf));
+    for (idx = 0; idx < stream_active_count;)
+    {
+        if (((identifier) & (1 << idx)) != 0)
+        {
+            stream_p = &stream_descriptors[idx];
+            pos = stream_calculate_offset(idx);
 
-			work_p = &stream_packet_buffer[pos];
+            work_p = &streaming_resp_buff[pos];
 
-			for (uint8_t i = 0; i < stream_p->chunk_count; i++)
-			{
-				chunk_p = &stream_p->chunks[i];
-				if (chunk_p->num_bytes_to_read != 0)
-				{
-					memcpy(work_p, chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
-					work_p += chunk_p->num_bytes_to_read;
-				}
+            for (uint8_t i = 0; i < stream_p->chunk_count; i++)
+            {
+                chunk_p = &stream_p->chunks[i];
+                if (chunk_p->num_bytes_to_read != 0)
+                {
+                    memcpy(work_p, chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
+                    work_p += chunk_p->num_bytes_to_read;
+                }
+            }
 
-			}
-			if (stream_p->intline_count != 0)
-			{
-				memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
-				work_p += stream_p->intline_count;
-			}
-		}
+            if (stream_p->intline_count != 0)
+            {
+                memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
+                work_p += stream_p->intline_count;
+            }
+        }
 
-		total_data_size += (uint16_t)stream_descriptors[idx].total_data_size;
-		idx++;
+        total_data_size += (uint16_t)stream_descriptors[idx].total_data_size;
+        idx++;
 
-	}
+    }
 
-	if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
-	{
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 40);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 32);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 24);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 16);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 8);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us);
+    if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
+    {
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 40);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 32);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 24);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 16);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 8);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us);
 
-		total_data_size += 6;
-	}
+        total_data_size += 6;
+    }
 
-	packet_index = 1;
-	tx_buf[0] = DECODER_HEADER_VALUE;
+    packet_index = 1;
+    tx_buf[0] = DECODER_HEADER_VALUE;
 
-	tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    // Success status
-	tx_buf[4] = 0x86;           // Response identifier for Sync. Data read
-	pos = 0;
-	for (idx = 0, size_remaining = total_data_size; idx < total_data_size; idx = idx + 51)
-	{
+    tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    /* Success status */
+    tx_buf[4] = DECODER_STRM_OLD_POLL_RSP_ID;     /* Response identifier for Sync. Data read */
+    pos = 0;
+    for (idx = 0, size_remaining = total_data_size; idx < total_data_size; idx = idx + DECODER_STRM_POLL_RSP_PL_SZ)
+    {
 
-		if (size_remaining > 51)
-		{
-			//tx_buf[2] = packet_index | 0x80;
-			tx_buf[2] = packet_index;
-			size_remaining -= 51;
-			tx_buf[1] = 51 + 5 + 2; /* Data size(51) + Response header size(5) + Carriage and line feed size 2*/
-			data_terminating_pos = 51 + 5;
-			memcpy(&tx_buf[5], &stream_packet_buffer[pos], 51);
-			pos = pos + 51;
+        if (size_remaining > DECODER_STRM_POLL_RSP_PL_SZ)
+        {
+            tx_buf[2] = packet_index;
+            size_remaining -= DECODER_STRM_POLL_RSP_PL_SZ;
+            tx_buf[1] =
+                (uint8_t)(DECODER_STRM_POLL_RSP_PL_SZ + DECODER_STRM_POLL_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE);
+            data_terminating_pos = DECODER_STRM_POLL_RSP_PL_SZ + DECODER_STRM_POLL_RSP_OVERHEAD;
+            memcpy(&tx_buf[5], &streaming_resp_buff[pos], DECODER_STRM_POLL_RSP_PL_SZ);
+            pos = pos + DECODER_STRM_POLL_RSP_PL_SZ;
 
-		} else
-		{
-			tx_buf[2] = packet_index;
-			tx_buf[1] = (uint8_t)(size_remaining + 5 + 2); /* Data size(51) + Response header size(5) + Carriage and line feed size 2*/
-			/* Update the data in response packet */
-			memcpy(&tx_buf[5], &stream_packet_buffer[pos], size_remaining);
-			data_terminating_pos =  (uint8_t)(size_remaining + 5);
-		}
+        }
+        else
+        {
+            tx_buf[2] = packet_index;
+            tx_buf[1] = (uint8_t)(size_remaining + DECODER_STRM_POLL_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE);
 
-		tx_buf[data_terminating_pos] = DECODER_CR_MACRO;
-		tx_buf[data_terminating_pos + 1] = DECODER_LF_MACRO;
-		/* transmit to host*/
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
-		packet_index++;
+            /* Update the data in response packet */
+            memcpy(&tx_buf[5], &streaming_resp_buff[pos], size_remaining);
+            data_terminating_pos = (uint8_t)(size_remaining + DECODER_STRM_POLL_RSP_OVERHEAD);
+        }
 
-	}
-	memset(stream_packet_buffer, 0, total_data_size);
+        tx_buf[data_terminating_pos] = DECODER_CR_MACRO;
+        tx_buf[data_terminating_pos + 1] = DECODER_LF_MACRO;
+
+        /* transmit to host*/
+        coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+        packet_index++;
+
+    }
+
+    memset(streaming_resp_buff, 0, total_data_size);
 }
+
 /*!
  *
  * @brief       : This API will stream the single fifo send response
  */
 static void streaming_single_fifo_send_response(stream_descriptor_t *stream_p, uint16_t read_bytes, uint8_t last_frame)
 {
-	int32_t bytes_transmitted = 0;
-	int32_t data_available = 0;
-	static uint8_t residue_buffer[100];
-	uint8_t datalength = 0;
-	static uint8_t residue_len = 0;
-	uint8_t *work_p;
-	uint8_t tx_buf[64];
+    int32_t bytes_transmitted = 0;
+    int32_t data_available;
+    static uint8_t residue_buffer[100] = { 0 };
+    uint8_t datalength = 0;
+    static uint8_t residue_len = 0;
+    uint8_t *work_p;
+    uint8_t terminator_pos;
 
-	work_p = stream_packet_buffer;
+    memset(tx_buf, 0, sizeof(tx_buf));
 
-	/* Copy residue data if any to FIFO data array.*/
-	if (residue_len > 0)
-	{
-		memcpy(work_p, residue_buffer, residue_len);
-		/* Update the data length*/
-		datalength = residue_len;
-		work_p += datalength;
-		residue_len = 0; /* Reset the residue length*/
-	}
+    work_p = streaming_resp_buff;
 
-	/* Copy the read data i.e., individual frame into FIFO data array*/
-	memcpy(work_p, stream_p->chunks[1].DATA_chunk, read_bytes);
+    /* Copy residue data if any to FIFO data array.*/
+    if (residue_len > 0)
+    {
+        memcpy(work_p, residue_buffer, residue_len);
 
-	/* Update the data length*/
-	datalength += (uint8_t)read_bytes;
+        /* Update the data length*/
+        datalength = residue_len;
+        work_p += datalength;
+        residue_len = 0; /* Reset the residue length*/
+    }
 
-	// Copy of FIFO data length is taken for transmit operation
-	data_available = datalength;
+    /* Copy the read data i.e., individual frame into FIFO data array*/
+    memcpy(work_p, stream_p->chunks[1].DATA_chunk, read_bytes);
 
-	// Header is updated only once.
-	tx_buf[0] = DECODER_HEADER_VALUE;
-	tx_buf[2] = 1;
-	// Success status
-	tx_buf[3] = 0x00;
-	// Response identifier for Sync. Data read
-	tx_buf[4] = 0x8A;
-	// Sensor ID as given by the host
-	tx_buf[5] = stream_p->channel_id;
+    /* Update the data length*/
+    datalength += (uint8_t)read_bytes;
 
-	// Data packet number.
-	tx_buf[6] = (uint8_t) (stream_p->data_packet_counter >> 24);
-	tx_buf[7] = (uint8_t) (stream_p->data_packet_counter >> 16);
-	tx_buf[8] = (uint8_t) (stream_p->data_packet_counter >> 8);
-	tx_buf[9] = (uint8_t) (stream_p->data_packet_counter++);
+    /* Copy of FIFO data length is taken for transmit operation */
+    data_available = datalength;
 
-	/* Dummy timestamp values Where it is used need to find out?*/
-	tx_buf[10] = 0;
-	tx_buf[11] = 0;
-	tx_buf[12] = 0;
-	tx_buf[13] = 0;
+    /* Header is updated only once. */
+    tx_buf[0] = DECODER_HEADER_VALUE;
+    tx_buf[2] = 1;
 
-	// Loop is implemented to transmit the FIFO data.
-	// If FIFO data array contains more than MAXIMUM_DATA_IN_PACKET, slice by MAXIMUM_DATA_IN_PACKET and send to host.
+    /* Success status */
+    tx_buf[3] = 0x00;
 
-	while (data_available > 48)
-	{
-		/* Copy the data to transmit buffer*/
-		memcpy(&tx_buf[14], &stream_packet_buffer[bytes_transmitted], 48);
-		data_available -= 48;
-		bytes_transmitted += 48;
-		tx_buf[62] = 0x0D;
-		tx_buf[63] = 0x0A;
-		tx_buf[1] = 64;/* Size field updated*/
+    /* Response identifier for Sync. Data read */
+    tx_buf[4] = DECODER_STRM_INT_RSP_ID;
 
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
-	}
+    /* Sensor ID as given by the host */
+    tx_buf[5] = stream_p->channel_id;
 
-	// Incase of last frame, how much ever data left in FIFO data array needs to be transmitted.
-	if (last_frame)
-	{
-		/* Copy the data to transmit buffer*/
-		memcpy(&tx_buf[14], &stream_packet_buffer[bytes_transmitted], (uint32_t)data_available);
-		tx_buf[14 + data_available] = 0x0D;
-		tx_buf[15 + data_available] = 0x0A;
-		tx_buf[1] = (uint8_t)data_available + 16; /* Size field updated*/
+    /* Data packet number. */
+    tx_buf[6] = (uint8_t) (stream_p->data_packet_counter >> 24);
+    tx_buf[7] = (uint8_t) (stream_p->data_packet_counter >> 16);
+    tx_buf[8] = (uint8_t) (stream_p->data_packet_counter >> 8);
+    tx_buf[9] = (uint8_t) (stream_p->data_packet_counter++);
 
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+    /* Dummy timestamp values Where it is used need to find out?*/
+    tx_buf[10] = 0;
+    tx_buf[11] = 0;
+    tx_buf[12] = 0;
+    tx_buf[13] = 0;
 
-		residue_len = 0;
-	} else
-	{
-		// Copy available data in FIFO data array into Residue array.
-		memcpy(&residue_buffer[0], &stream_packet_buffer[bytes_transmitted], (uint32_t)(datalength - bytes_transmitted));
-		residue_len = (uint8_t)(datalength - bytes_transmitted);
-	}
+    /*
+     * Loop is implemented to transmit the FIFO data.
+     * If FIFO data array contains more than MAXIMUM_DATA_IN_PACKET, slice by MAXIMUM_DATA_IN_PACKET and send to host.
+     */
 
+    while (data_available > DECODER_STRM_FIFO_RSP_PL_SZ)
+    {
+        /* Copy the data to transmit buffer*/
+        memcpy(&tx_buf[14], &streaming_resp_buff[bytes_transmitted], DECODER_STRM_FIFO_RSP_PL_SZ);
+        data_available -= DECODER_STRM_FIFO_RSP_PL_SZ;
+        bytes_transmitted += DECODER_STRM_FIFO_RSP_PL_SZ;
+        terminator_pos = (uint8_t) bytes_transmitted + DECODER_STRM_FIFO_RSP_OVERHEAD;
+        tx_buf[terminator_pos] = DECODER_CR_MACRO;
+        tx_buf[terminator_pos + 1] = DECODER_LF_MACRO;
+        tx_buf[1] = (uint8_t) bytes_transmitted + DECODER_STRM_FIFO_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE; /* Size field
+                                                                                                       * updated*/
+
+        coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+    }
+
+    /* Incase of last frame, how much ever data left in FIFO data array needs to be transmitted. */
+    if (last_frame)
+    {
+        /* Copy the data to transmit buffer*/
+        memcpy(&tx_buf[14], &streaming_resp_buff[bytes_transmitted], (uint32_t)data_available);
+        terminator_pos = (uint8_t) data_available + DECODER_STRM_FIFO_RSP_OVERHEAD;
+        tx_buf[terminator_pos] = DECODER_CR_MACRO;
+        tx_buf[terminator_pos + 1] = DECODER_LF_MACRO;
+        tx_buf[1] = (uint8_t) data_available + DECODER_STRM_FIFO_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE;/* Size field
+                                                                                                           * updated*/
+
+        coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+
+        residue_len = 0;
+    }
+    else
+    {
+        /* Copy available data in FIFO data array into Residue array. */
+        memcpy(&residue_buffer[0], &streaming_resp_buff[bytes_transmitted], (uint32_t)(datalength - bytes_transmitted));
+        residue_len = (uint8_t)(datalength - bytes_transmitted);
+    }
 }
+
 /*!
  *
  * @brief       : This API will stream the multiple fifo send response
  */
 static void streaming_multiple_fifo_send_response(stream_descriptor_t *stream_p, uint8_t chunk_id, uint16_t read_bytes)
 {
-	uint8_t packetstosend, packetnumber;
-	uint32_t datatosend, terminator_pos, tx_data_size;
-	uint8_t *work_p;
-	uint8_t tx_buf[64];
-	stream_chunkinfo_t *chunk_p;
-	uint8_t fifo_identifier;
-	tx_data_size = read_bytes;
+    uint8_t packetstosend, packetnumber;
+    uint32_t datatosend, terminator_pos, tx_data_size;
+    uint8_t *work_p;
+    stream_chunkinfo_t *chunk_p;
+    uint8_t fifo_identifier;
 
-	work_p = stream_packet_buffer;
+    tx_data_size = read_bytes;
 
-	/* Copy the data from the chunk*/
-	chunk_p = &stream_p->chunks[chunk_id];
-	memcpy(work_p, chunk_p->DATA_chunk, read_bytes);
-	work_p += read_bytes;
+    memset(tx_buf, 0, sizeof(tx_buf));
 
-	/* Calculate the FIFO identifier*/
-	fifo_identifier = (chunk_id - 2) / 2;
+    work_p = streaming_resp_buff;
 
-	if (stream_p->intline_count != 0)
-	{
-		memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
-	}
+    /* Copy the data from the chunk*/
+    chunk_p = &stream_p->chunks[chunk_id];
+    memcpy(work_p, chunk_p->DATA_chunk, read_bytes);
+    work_p += read_bytes;
 
-	if (tx_data_size > 48)
-	{
-		packetstosend = (uint8_t) ceil((double) tx_data_size / 48);
-	} else
-	{
-		packetstosend = 1;
-	}
+    /* Calculate the FIFO identifier*/
+    fifo_identifier = (chunk_id - 2) / 2;
 
-	tx_buf[0] = DECODER_HEADER_VALUE;
+    if (stream_p->intline_count != 0)
+    {
+        memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
+    }
 
-	packetnumber = 1;
-	while (packetstosend > 0)
-	{
-		/* Write packet number */
-		tx_buf[2] = packetnumber;
-		if (packetstosend > 1)
-		{
-			/* set a flag for all packets other than the last */
-			tx_buf[2] |= 0x80;
-		}
+    if (tx_data_size > DECODER_STRM_FIFO_RSP_PL_SZ)
+    {
+        packetstosend = (uint8_t) ceil((double) tx_data_size / DECODER_STRM_FIFO_RSP_PL_SZ);
+    }
+    else
+    {
+        packetstosend = 1;
+    }
 
-		tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    // Success status
-		tx_buf[4] = 0x8A;           // Response identifier for Sync. Data read
-		tx_buf[5] = fifo_identifier + 1;       // FIFO identifier.
+    tx_buf[0] = DECODER_HEADER_VALUE;
 
-		//stream_p->data_packet_counter = 0;
-		/* Data packet number.*/
-		tx_buf[6] = (uint8_t) ((stream_p->data_packet_counter & 0xff000000) >> 24);
-		tx_buf[7] = (uint8_t) ((stream_p->data_packet_counter & 0x00ff0000) >> 16);
-		tx_buf[8] = (uint8_t) ((stream_p->data_packet_counter & 0x0000ff00) >> 8);
-		tx_buf[9] = (uint8_t) (stream_p->data_packet_counter & 0x000000ff);
+    packetnumber = 1;
+    while (packetstosend > 0)
+    {
+        /* Write packet number */
+        tx_buf[2] = packetnumber;
+        if (packetstosend > 1)
+        {
+            /* set a flag for all packets other than the last */
+            tx_buf[2] |= 0x80;
+        }
 
-		/* Dummy timestamp value to conform protocol protocol response format*/
-		tx_buf[10] = 0;
-		tx_buf[11] = 0;
-		tx_buf[12] = 0;
-		tx_buf[13] = 0;
+        tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;    /* Success status */
+        tx_buf[4] = DECODER_STRM_INT_RSP_ID;          /* Response identifier for Sync. Data read */
+        tx_buf[5] = fifo_identifier + 1;              /* FIFO identifier. */
 
-		stream_p->data_packet_counter++;
+        /* Data packet number.*/
+        tx_buf[6] = (uint8_t) ((stream_p->data_packet_counter & 0xff000000) >> 24);
+        tx_buf[7] = (uint8_t) ((stream_p->data_packet_counter & 0x00ff0000) >> 16);
+        tx_buf[8] = (uint8_t) ((stream_p->data_packet_counter & 0x0000ff00) >> 8);
+        tx_buf[9] = (uint8_t) (stream_p->data_packet_counter & 0x000000ff);
 
-		if (tx_data_size > 48)
-		{
-			datatosend = 48;
-			tx_data_size -= 48;
-		} else
-		{
-			datatosend = tx_data_size;
-		}
+        /* Dummy timestamp value to conform protocol protocol response format*/
+        tx_buf[10] = 0;
+        tx_buf[11] = 0;
+        tx_buf[12] = 0;
+        tx_buf[13] = 0;
 
-		/* Update the data in response packet */
-		memcpy(&tx_buf[14], &stream_packet_buffer[(packetnumber - 1) * 48], datatosend);
+        stream_p->data_packet_counter++;
 
-		/* Add terminator sequence */
-		terminator_pos = 14 + datatosend;
-		tx_buf[terminator_pos] = 0x0D;
-		tx_buf[terminator_pos + 1] = 0x0A;
+        if (tx_data_size > DECODER_STRM_FIFO_RSP_PL_SZ)
+        {
+            datatosend = DECODER_STRM_FIFO_RSP_PL_SZ;
+            tx_data_size -= DECODER_STRM_FIFO_RSP_PL_SZ;
+        }
+        else
+        {
+            datatosend = tx_data_size;
+        }
 
-		/* Update the package size */
-		tx_buf[1] = (uint8_t) (16 + datatosend);
+        /* Update the data in response packet */
+        memcpy(&tx_buf[14], &streaming_resp_buff[(packetnumber - 1) * DECODER_STRM_FIFO_RSP_PL_SZ], datatosend);
 
-		/* transmit to host*/
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+        /* Add terminator sequence */
+        terminator_pos = datatosend + DECODER_STRM_FIFO_RSP_OVERHEAD;
+        tx_buf[terminator_pos] = DECODER_CR_MACRO;
+        tx_buf[terminator_pos + 1] = DECODER_LF_MACRO;
 
-		packetstosend--;
-		packetnumber++;
-	}
+        /* Update the package size */
+        tx_buf[1] = (uint8_t) (datatosend + DECODER_STRM_FIFO_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE);
 
+        /* transmit to host */
+        coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
+
+        packetstosend--;
+        packetnumber++;
+    }
 }
+
 /*!
  *
  * @brief       :This API will stream the interrupt send response
  */
 static void streaming_interrupt_send_response(stream_descriptor_t *stream_p)
 {
-	uint8_t packetstosend, packetnumber;
-	uint32_t datatosend, terminator_pos, tx_data_size;
-	uint8_t *work_p;
-	uint8_t tx_buf[64];
-	stream_chunkinfo_t *chunk_p;
-	
-	tx_data_size = stream_p->total_data_size;
+    uint8_t packetstosend, packetnumber;
+    uint32_t datatosend, terminator_pos, tx_data_size;
+    uint8_t *work_p;
 
-	work_p = stream_packet_buffer;
-	for (uint8_t i = 0; i < stream_p->chunk_count; i++)
-	{
-		chunk_p = &stream_p->chunks[i];
-		memcpy(work_p, chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
-		work_p += chunk_p->num_bytes_to_read;
-	}
+    stream_chunkinfo_t *chunk_p;
 
-	if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
-	{
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 40);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 32);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 24);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 16);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 8);
-		*work_p++ = (uint8_t) (stream_p->packet_timestamp_us);
+    memset(tx_buf, 0, sizeof(tx_buf));
 
-		tx_data_size += 6;
-	}
+    tx_data_size = stream_p->total_data_size;
 
-	if (stream_p->intline_count != 0)
-	{
-		memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
-	}
+    work_p = streaming_resp_buff;
+    for (uint8_t i = 0; i < stream_p->chunk_count; i++)
+    {
+        chunk_p = &stream_p->chunks[i];
+        memcpy(work_p, chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
+        work_p += chunk_p->num_bytes_to_read;
+    }
 
-	if (tx_data_size > DECODER_RESPONSE_PAYLOAD_SIZE)
-	{
-		packetstosend = (uint8_t) ceil((double) tx_data_size / DECODER_RESPONSE_PAYLOAD_SIZE);
-	} else
-	{
-		packetstosend = 1;
-	}
+    if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
+    {
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 40);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 32);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 24);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 16);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us >> 8);
+        *work_p++ = (uint8_t) (stream_p->packet_timestamp_us);
 
-	tx_buf[0] = DECODER_HEADER_VALUE;
+        tx_data_size += 6;
+    }
 
-	packetnumber = 1;
-	while (packetstosend > 0)
-	{
-		/* Write packet number */
-		tx_buf[2] = packetnumber;
-		if (packetstosend > 1)
-		{
-			/* set a flag for all packets other than the last */
-			tx_buf[2] |= 0x80;
-		}
+    if (stream_p->intline_count != 0)
+    {
+        memcpy(work_p, stream_p->DATA_intline, stream_p->intline_count);
+    }
 
-		tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;	// Success status
-		tx_buf[4] = 0x8A;			// Response identifier for Sync. Data read
-		tx_buf[5] = stream_p->channel_id;		// Sensor ID as given by the host
+    if (tx_data_size > DECODER_STRM_INT_RSP_PL_SZ)
+    {
+        packetstosend = (uint8_t) ceil((double) tx_data_size / DECODER_STRM_INT_RSP_PL_SZ);
+    }
+    else
+    {
+        packetstosend = 1;
+    }
 
-		// Data packet number.
-		tx_buf[6] = (uint8_t) ((stream_p->data_packet_counter & 0xff000000) >> 24);
-		tx_buf[7] = (uint8_t) ((stream_p->data_packet_counter & 0x00ff0000) >> 16);
-		tx_buf[8] = (uint8_t) ((stream_p->data_packet_counter & 0x0000ff00) >> 8);
-		tx_buf[9] = (uint8_t) (stream_p->data_packet_counter & 0x000000ff);
-		stream_p->data_packet_counter++;
+    tx_buf[0] = DECODER_HEADER_VALUE;
 
-		if (tx_data_size > DECODER_RESPONSE_PAYLOAD_SIZE)
-		{
-			datatosend = DECODER_RESPONSE_PAYLOAD_SIZE;
-			tx_data_size -= DECODER_RESPONSE_PAYLOAD_SIZE;
-		} else
-		{
-			datatosend = tx_data_size;
-		}
+    packetnumber = 1;
+    while (packetstosend > 0)
+    {
+        /* Write packet number */
+        tx_buf[2] = packetnumber;
+        if (packetstosend > 1)
+        {
+            /* set a flag for all packets other than the last */
+            tx_buf[2] |= 0x80;
+        }
 
-		/* Update the data in response packet */
-		memcpy(&tx_buf[10], &stream_packet_buffer[(packetnumber - 1) * DECODER_RESPONSE_PAYLOAD_SIZE],
-				datatosend);
+        tx_buf[3] = (uint8_t) DECODER_RSP_SUCCESS;  /* Success status */
+        tx_buf[4] = DECODER_STRM_INT_RSP_ID;        /* Response identifier for Sync. Data read */
+        tx_buf[5] = stream_p->channel_id;           /* Sensor ID as given by the host */
 
-		/* Add terminator sequence */
-		terminator_pos = 10 + datatosend;
-		tx_buf[terminator_pos] = 0x0D;
-		tx_buf[terminator_pos + 1] = 0x0A;
+        /* Data packet number. */
+        tx_buf[6] = (uint8_t) ((stream_p->data_packet_counter & 0xff000000) >> 24);
+        tx_buf[7] = (uint8_t) ((stream_p->data_packet_counter & 0x00ff0000) >> 16);
+        tx_buf[8] = (uint8_t) ((stream_p->data_packet_counter & 0x0000ff00) >> 8);
+        tx_buf[9] = (uint8_t) (stream_p->data_packet_counter & 0x000000ff);
+        stream_p->data_packet_counter++;
 
-		/* Update the package size */
-		tx_buf[1] = (uint8_t) (DECODER_RESPONSE_OVERHEAD + datatosend);
+        if (tx_data_size > DECODER_STRM_INT_RSP_PL_SZ)
+        {
+            datatosend = DECODER_STRM_INT_RSP_PL_SZ;
+            tx_data_size -= DECODER_STRM_INT_RSP_PL_SZ;
+        }
+        else
+        {
+            datatosend = tx_data_size;
+        }
 
-		/* transmit to host*/
-		coines_write_intf(comm_intf, tx_buf, tx_buf[1]);
-		
-		packetstosend--;
-		packetnumber++;
-	}
-	
+        /* Update the data in response packet */
+        memcpy(&tx_buf[10], &streaming_resp_buff[(packetnumber - 1) * DECODER_STRM_INT_RSP_PL_SZ], datatosend);
+
+        /* Add terminator sequence */
+        terminator_pos = datatosend + DECODER_STRM_INT_RSP_OVERHEAD;
+        tx_buf[terminator_pos] = DECODER_CR_MACRO;
+        tx_buf[terminator_pos + 1] = DECODER_LF_MACRO;
+
+        /* Update the package size */
+        tx_buf[1] = (uint8_t) (datatosend + DECODER_STRM_INT_RSP_OVERHEAD + DECODER_END_INDICATORS_SIZE);
+
+        /* Add to buffer */
+        mbuf_add_to_buffer(tx_buf, tx_buf[1]);
+
+        packetstosend--;
+        packetnumber++;
+    }
 }
 
 /*!
- * @brief 	This API is used to read the data and Int states for one stream channel
+ * @brief   This API is used to read the data and Int states for one stream channel
  *
  */
 static int8_t read_fifo_polling_sample(stream_fifo_descriptor_t *stream_p)
 {
-	int8_t ret = 0;
-	uint8_t interrupt_line;
-	enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
-	enum coines_pin_direction gpio_dir;
+    int8_t ret = 0;
+    uint8_t interrupt_line;
+    enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
+    enum coines_pin_direction gpio_dir;
 
-	/* read feature interrupts state for current stream */
-	if (stream_p->intline_info != NULL)
-	{
-		/* Get the Interrupt line information and update them in the buffer for transmission */
-		for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
-		{
-			interrupt_line = stream_p->intline_info[int_idx];
+    /* read feature interrupts state for current stream */
+    if (stream_p->intline_info != NULL)
+    {
+        /* Get the Interrupt line information and update them in the buffer for transmission */
+        for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
+        {
+            interrupt_line = stream_p->intline_info[int_idx];
 
-			//TODO: use polarity
-			coines_set_pin_config(interrupt_line, COINES_PIN_DIRECTION_IN, COINES_PIN_VALUE_LOW);
-			coines_get_pin_config(interrupt_line, &gpio_dir, &gpio_pin_val);
+            coines_get_pin_config((enum coines_multi_io_pin)interrupt_line, &gpio_dir, &gpio_pin_val);
 
-			if (stream_feature_line_state[interrupt_line] == 1)
-			{
-				/* the interrupt was triggered, so mark it when sending to host and update the line status according with the current GPIO value */
-				stream_p->DATA_intline[int_idx] = 1;
-				stream_feature_line_state[interrupt_line] =
-						(gpio_pin_val == COINES_PIN_VALUE_HIGH) ? 1 : 0;
-			} else
-			{
-				/* the interrupt was not triggered, so update the line status according with the current GPIO value, and send this new value to the host */
-				stream_feature_line_state[interrupt_line] =
-						(gpio_pin_val == COINES_PIN_VALUE_HIGH) ? 1 : 0;
-				stream_p->DATA_intline[int_idx] = stream_feature_line_state[interrupt_line];
-			}
-		}
-	}
+            if (stream_feature_line_state[interrupt_line] == 1)
+            {
+                /* the interrupt was triggered, so mark it when sending to host and update the line status according
+                 * with the current GPIO value */
+                stream_p->DATA_intline[int_idx] = 1;
+                stream_feature_line_state[interrupt_line] = (gpio_pin_val == COINES_PIN_VALUE_HIGH) ? 1 : 0;
+            }
+            else
+            {
+                /* the interrupt was not triggered, so update the line status according with the current GPIO value, and
+                 * send this new value to the host */
+                stream_feature_line_state[interrupt_line] = (gpio_pin_val == COINES_PIN_VALUE_HIGH) ? 1 : 0;
+                stream_p->DATA_intline[int_idx] = stream_feature_line_state[interrupt_line];
+            }
+        }
+    }
 
-	if (stream_p->feature == STREAM_FIFO_BURST_READ)
-	{
-		if (stream_p->param_interface == STREAM_IF_I2C)
-		{
-			ret = sensor_i2c_read((uint8_t) stream_p->dev_address, stream_p->fifo_reg_address,
-					stream_p->fifo_data, stream_p->number_bytes);
-		} else
-		{
+    if (stream_p->feature == STREAM_FIFO_BURST_READ)
+    {
+        if (stream_p->param_interface == STREAM_IF_I2C)
+        {
+            ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                                  stream_p->fifo_reg_address,
+                                  stream_p->fifo_data,
+                                  stream_p->number_bytes);
+        }
+        else
+        {
 
-			ret = sensor_spi_read((uint8_t) stream_p->param_interface, stream_p->fifo_reg_address | 0x80,
-					stream_p->fifo_data, stream_p->number_bytes);
+            ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                  stream_p->fifo_reg_address | 0x80,
+                                  stream_p->fifo_data,
+                                  stream_p->number_bytes);
 
-		}
-	} else
-	{
-		uint16_t inx = 0;
-		uint16_t num_times_read = stream_p->number_bytes / stream_p->fifo_frame_size;
-		uint16_t data_pos = 0;
-		uint16_t read_bytes = 0;
-		uint8_t reminder_flag = 0;
+        }
+    }
+    else
+    {
+        uint16_t inx = 0;
+        uint16_t num_times_read = stream_p->number_bytes / stream_p->fifo_frame_size;
+        uint16_t data_pos = 0;
+        uint16_t read_bytes;
+        uint8_t reminder_flag = 0;
 
-		if ((stream_p->number_bytes % stream_p->fifo_frame_size) != 0)
-		{
+        if ((stream_p->number_bytes % stream_p->fifo_frame_size) != 0)
+        {
 
-			reminder_flag = 1;
-		}
+            reminder_flag = 1;
+        }
 
-		read_bytes = stream_p->fifo_frame_size;
-		for (; inx < num_times_read;)
-		{
+        read_bytes = stream_p->fifo_frame_size;
+        for (; inx < num_times_read;)
+        {
 
-			if (stream_p->param_interface == STREAM_IF_I2C)
-			{
-				ret = sensor_i2c_read((uint8_t) stream_p->dev_address, stream_p->fifo_reg_address,
-						stream_p->fifo_data + data_pos, read_bytes);
-			} else
-			{
+            if (stream_p->param_interface == STREAM_IF_I2C)
+            {
+                ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                                      stream_p->fifo_reg_address,
+                                      stream_p->fifo_data + data_pos,
+                                      read_bytes);
+            }
+            else
+            {
 
-				ret = sensor_spi_read((uint8_t) stream_p->param_interface,
-						stream_p->fifo_reg_address | 0x80, stream_p->fifo_data + data_pos,
-						read_bytes);
-			}
+                ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                      stream_p->fifo_reg_address | 0x80,
+                                      stream_p->fifo_data + data_pos,
+                                      read_bytes);
+            }
 
-			data_pos += stream_p->fifo_frame_size;
-			inx++;
-		}
+            data_pos += stream_p->fifo_frame_size;
+            inx++;
+        }
 
-		if (reminder_flag == 1)
-		{
-			read_bytes = stream_p->number_bytes % stream_p->fifo_frame_size;
-			if (stream_p->param_interface == STREAM_IF_I2C)
-			{
-				ret = sensor_i2c_read((uint8_t) stream_p->dev_address, stream_p->fifo_reg_address,
-						stream_p->fifo_data + data_pos, read_bytes);
-			} else
-			{
+        if (reminder_flag == 1)
+        {
+            read_bytes = stream_p->number_bytes % stream_p->fifo_frame_size;
+            if (stream_p->param_interface == STREAM_IF_I2C)
+            {
+                ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                                      stream_p->fifo_reg_address,
+                                      stream_p->fifo_data + data_pos,
+                                      read_bytes);
+            }
+            else
+            {
 
-				ret = sensor_spi_read((uint8_t) stream_p->param_interface,
-						stream_p->fifo_reg_address | 0x80, stream_p->fifo_data + data_pos,
-						read_bytes);
+                ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                      stream_p->fifo_reg_address | 0x80,
+                                      stream_p->fifo_data + data_pos,
+                                      read_bytes);
 
-			}
-		}
+            }
+        }
+    }
 
-	}
-
-	//TODO: No timestamp implementation needed, as it is not supported in DD2.0 and not exposed to GenericAPI/COINESAPI
-	return ret;
+    return ret;
 }
+
 /*!
- * @brief 	This API is used to read and send single fifo data
+ * @brief   This API is used to read and send single fifo data
  *
  */
 static int8_t read_and_send_single_fifo_data(stream_descriptor_t *stream_p)
 {
-	uint16_t size_to_read = 0;
-	uint8_t chunk_len_idx = 0;
-	uint16_t read_bytes;
-	uint8_t last_frame = 0;
-	int8_t ret = 0;
+    uint16_t size_to_read = 0;
+    uint8_t chunk_len_idx;
+    uint16_t read_bytes;
+    uint8_t last_frame = 0;
+    int8_t ret = 0;
 
-	/* Read the length*/
-	stream_chunkinfo_t *read_len_p = &stream_p->chunks[0];
+    /* Read the length*/
+    stream_chunkinfo_t *read_len_p = &stream_p->chunks[0];
 
-	read_len_p->DATA_chunk = (uint8_t*) stream_memory_alloc(
-			stream_p->chunks[0].num_bytes_to_read * sizeof(uint8_t));
+    read_len_p->DATA_chunk = (uint8_t*) stream_memory_alloc(stream_p->chunks[0].num_bytes_to_read * sizeof(uint8_t));
 
-	if (stream_p->param_interface == STREAM_IF_I2C)
-	{
-		/* TODO:*/
-		ret = sensor_i2c_read((uint8_t) stream_p->dev_address, read_len_p->startaddress, read_len_p->DATA_chunk,
-				read_len_p->num_bytes_to_read);
-	} else
-	{
-		if (read_len_p->num_bytes_to_read != 0)
-		{
-			//TODO: store this address in the dev_address in the future (when receiving the command)
-			ret = sensor_spi_read((uint8_t) stream_p->param_interface, read_len_p->startaddress | 0x80,
-					read_len_p->DATA_chunk, read_len_p->num_bytes_to_read);
+    if (stream_p->param_interface == STREAM_IF_I2C)
+    {
+        ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                              read_len_p->startaddress,
+                              read_len_p->DATA_chunk,
+                              read_len_p->num_bytes_to_read);
+    }
+    else
+    {
+        if (read_len_p->num_bytes_to_read != 0)
+        {
+            ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                  read_len_p->startaddress | 0x80,
+                                  read_len_p->DATA_chunk,
+                                  read_len_p->num_bytes_to_read);
 
-		}
-	}
+        }
+    }
 
-	/* Get the size of the data to be read*/
-	for (chunk_len_idx = 0; chunk_len_idx < read_len_p->num_bytes_to_read; chunk_len_idx++)
-	{
-		size_to_read |= (uint16_t)(read_len_p->DATA_chunk[chunk_len_idx] << (chunk_len_idx * 8));
-	}
+    /* Get the size of the data to be read*/
+    for (chunk_len_idx = 0; chunk_len_idx < read_len_p->num_bytes_to_read; chunk_len_idx++)
+    {
+        size_to_read |= (uint16_t)(read_len_p->DATA_chunk[chunk_len_idx] << (chunk_len_idx * 8));
+    }
 
-	stream_chunkinfo_t *data_p = &stream_p->chunks[1];
+    stream_chunkinfo_t *data_p = &stream_p->chunks[1];
 
-	data_p->DATA_chunk = (uint8_t*) stream_memory_alloc(stream_p->framelength * sizeof(uint8_t));
+    data_p->DATA_chunk = (uint8_t*) stream_memory_alloc(stream_p->framelength * sizeof(uint8_t));
 
-	data_p->num_bytes_to_read = size_to_read;
+    data_p->num_bytes_to_read = size_to_read;
 
-	while (size_to_read > 0)
-	{
+    while (size_to_read > 0)
+    {
 
-		if (size_to_read > stream_p->framelength)
-		{
-			read_bytes = stream_p->framelength;
-		} else
-		{
-			read_bytes = size_to_read;
-		}
+        if (size_to_read > stream_p->framelength)
+        {
+            read_bytes = stream_p->framelength;
+        }
+        else
+        {
+            read_bytes = size_to_read;
+        }
 
-		if (size_to_read <= stream_p->framelength)
-			last_frame = 1;
+        if (size_to_read <= stream_p->framelength)
+        {
+            last_frame = 1;
+        }
 
-		if (stream_p->param_interface == STREAM_IF_I2C)
-		{
-			ret = sensor_i2c_read((uint8_t) stream_p->dev_address, data_p->startaddress, data_p->DATA_chunk,
-					read_bytes);
-		} else
-		{
-			ret = sensor_spi_read((uint8_t) stream_p->param_interface, data_p->startaddress | 0x80,
-					data_p->DATA_chunk, read_bytes);
-			//TODO: store this address in the dev_address in the future (when receiving the command)
-		}
+        if (stream_p->param_interface == STREAM_IF_I2C)
+        {
+            ret =
+                sensor_i2c_read((uint8_t) stream_p->dev_address, data_p->startaddress, data_p->DATA_chunk, read_bytes);
+        }
+        else
+        {
+            ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                  data_p->startaddress | 0x80,
+                                  data_p->DATA_chunk,
+                                  read_bytes);
 
-		size_to_read -= read_bytes;
-		/* Send the data to host*/
-		streaming_single_fifo_send_response(stream_p, read_bytes, last_frame);
-	}
+        }
 
-	STREAM_SAFE_FREE(data_p->DATA_chunk);
+        size_to_read -= read_bytes;
 
-	STREAM_SAFE_FREE(read_len_p->DATA_chunk);
+        /* Send the data to host*/
+        streaming_single_fifo_send_response(stream_p, read_bytes, last_frame);
+    }
 
-	return ret;
+    stream_safe_free(&data_p->DATA_chunk);
+
+    stream_safe_free(&read_len_p->DATA_chunk);
+
+    return ret;
 }
+
 /*!
- * @brief 	This API is used to read and send multiple fifo data
+ * @brief   This API is used to read and send multiple fifo data
  *
  */
 static int8_t read_and_send_multiple_fifo_data(stream_descriptor_t *stream_p)
 {
-	uint8_t interrupt_fifo_status;
-	uint8_t num_interrupt_mask;
-	uint8_t idx;
-	uint8_t len_chunk_index;
-	int16_t size_to_read = 0;
-	uint8_t chunk_len_idx = 0;
-	uint8_t data_chunk_index;
-	uint16_t read_bytes;
-	uint16_t data_pos_index = 0;
-	int8_t ret = 0;
-	//TODO: implement
-	/* Get the number of Interrupt mask in the command*/
-	/* Interrupt status + Number of bytes to read*/
-	/* Wakeup FIFO Size register1 + Number of bytes to read */
-	/* Wakeup FIFO Data register 1+ Number of bytes to read from the previous read of size register1 */
-	/* Non-Wakeup FIFO Size register2 + Number of bytes to read */
-	/* Non-Wakeup FIFO Data register 2+ Number of bytes to read from the previous read of size register2 */
-	/* In this interrupt mask is applicable only to the data register*/
-	/* In our example number of chunks is 5, we implement this following formula to calcuate the number of interrupt mask is available */
-	num_interrupt_mask = (stream_p->chunk_count - 1) / 2;
+    uint8_t interrupt_fifo_status;
+    uint8_t num_interrupt_mask;
+    uint8_t idx;
+    uint8_t len_chunk_index;
+    int16_t size_to_read = 0;
+    uint8_t chunk_len_idx = 0;
+    uint8_t data_chunk_index;
+    uint16_t read_bytes;
+    uint16_t data_pos_index = 0;
+    int8_t ret = 0;
 
-	/* Read the interrupt status*/
-	stream_chunkinfo_t *fifo_identification_p = &stream_p->chunks[0];
-	if (stream_p->param_interface == STREAM_IF_I2C)
-	{
+    /*TODO: implement */
 
-		ret = sensor_i2c_read((uint8_t) stream_p->dev_address, fifo_identification_p->startaddress,
-				fifo_identification_p->DATA_chunk, fifo_identification_p->num_bytes_to_read);
-	} else
-	{
-		if (fifo_identification_p->num_bytes_to_read != 0)
-		{
-			//TODO: store this address in the dev_address in the future (when receiving the command)
-			ret = sensor_spi_read((uint8_t) stream_p->param_interface,
-					fifo_identification_p->startaddress | 0x80, fifo_identification_p->DATA_chunk,
-					fifo_identification_p->num_bytes_to_read);
+    /* Get the number of Interrupt mask in the command*/
+    /* Interrupt status + Number of bytes to read*/
+    /* Wakeup FIFO Size register1 + Number of bytes to read */
+    /* Wakeup FIFO Data register 1+ Number of bytes to read from the previous read of size register1 */
+    /* Non-Wakeup FIFO Size register2 + Number of bytes to read */
+    /* Non-Wakeup FIFO Data register 2+ Number of bytes to read from the previous read of size register2 */
+    /* In this interrupt mask is applicable only to the data register*/
 
-		}
-	}
+    /* In our example number of chunks is 5, we implement this following formula to calcuate the number of interrupt
+     * mask is available */
+    num_interrupt_mask = (stream_p->chunk_count - 1) / 2;
 
-	/* Get the interrupt fifo status*/
-	interrupt_fifo_status = fifo_identification_p->DATA_chunk[0];
+    /* Read the interrupt status*/
+    stream_chunkinfo_t *fifo_identification_p = &stream_p->chunks[0];
 
-	for (idx = 0; idx < num_interrupt_mask; idx++)
-	{
-		if ((interrupt_fifo_status & stream_p->chunk_mask[idx]) != 0)
-		{
-			len_chunk_index = (uint8_t)(1 + (2 * idx));
+    if (stream_p->param_interface == STREAM_IF_I2C)
+    {
 
-			/* Read the length*/
-			stream_chunkinfo_t *read_len_p = &stream_p->chunks[len_chunk_index];
+        ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                              fifo_identification_p->startaddress,
+                              fifo_identification_p->DATA_chunk,
+                              fifo_identification_p->num_bytes_to_read);
+    }
+    else
+    {
+        if (fifo_identification_p->num_bytes_to_read != 0)
+        {
+            ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                  fifo_identification_p->startaddress | 0x80,
+                                  fifo_identification_p->DATA_chunk,
+                                  fifo_identification_p->num_bytes_to_read);
 
-			read_len_p->DATA_chunk = (uint8_t*) stream_memory_alloc(
-					stream_p->chunks[len_chunk_index].num_bytes_to_read * sizeof(uint8_t));
+        }
+    }
 
-			if (stream_p->param_interface == STREAM_IF_I2C)
-			{
-				ret = sensor_i2c_read((uint8_t) stream_p->dev_address, read_len_p->startaddress,
-						read_len_p->DATA_chunk, read_len_p->num_bytes_to_read);
-			} else
-			{
-				if (read_len_p->num_bytes_to_read != 0)
-				{
+    /* Get the interrupt fifo status*/
+    interrupt_fifo_status = fifo_identification_p->DATA_chunk[0];
 
-					//TODO: store this address in the dev_address in the future (when receiving the command)
-					ret = sensor_spi_read((uint8_t) stream_p->param_interface,
-							read_len_p->startaddress | 0x80, read_len_p->DATA_chunk,
-							read_len_p->num_bytes_to_read);
+    for (idx = 0; idx < num_interrupt_mask; idx++)
+    {
+        if ((interrupt_fifo_status & stream_p->chunk_mask[idx]) != 0)
+        {
+            len_chunk_index = (uint8_t)(1 + (2 * idx));
 
-				}
-			}
+            /* Read the length*/
+            stream_chunkinfo_t *read_len_p = &stream_p->chunks[len_chunk_index];
 
-			/* Get the size of the data to be read*/
-			for (chunk_len_idx = 0; chunk_len_idx < read_len_p->num_bytes_to_read; chunk_len_idx++)
-			{
-				size_to_read |= (int16_t)(read_len_p->DATA_chunk[chunk_len_idx] << (chunk_len_idx * 8));
-			}
+            read_len_p->DATA_chunk = (uint8_t*) stream_memory_alloc(
+                stream_p->chunks[len_chunk_index].num_bytes_to_read * sizeof(uint8_t));
 
-			if (size_to_read > 0)
-			{
-				data_chunk_index =(uint8_t)(2 + (2 * idx));
+            if (stream_p->param_interface == STREAM_IF_I2C)
+            {
+                ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                                      read_len_p->startaddress,
+                                      read_len_p->DATA_chunk,
+                                      read_len_p->num_bytes_to_read);
+            }
+            else
+            {
+                if (read_len_p->num_bytes_to_read != 0)
+                {
+                    ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                          read_len_p->startaddress | 0x80,
+                                          read_len_p->DATA_chunk,
+                                          read_len_p->num_bytes_to_read);
 
-				/* Read the framelength*/
-				if (size_to_read > (int16_t)stream_p->framelength)
-				{
-					read_bytes = stream_p->framelength;
-				} else
-				{
-					read_bytes = (uint16_t)size_to_read;
-				}
+                }
+            }
 
-				stream_chunkinfo_t *data_p = &stream_p->chunks[data_chunk_index];
+            /* Get the size of the data to be read*/
+            for (chunk_len_idx = 0; chunk_len_idx < read_len_p->num_bytes_to_read; chunk_len_idx++)
+            {
+                size_to_read |= (int16_t)(read_len_p->DATA_chunk[chunk_len_idx] << (chunk_len_idx * 8));
+            }
 
-				data_p->DATA_chunk = (uint8_t*) stream_memory_alloc(read_bytes * sizeof(uint8_t));
+            if (size_to_read > 0)
+            {
+                data_chunk_index = (uint8_t)(2 + (2 * idx));
 
-				while (size_to_read > 0)
-				{
-					if (stream_p->param_interface == STREAM_IF_I2C)
-					{
-						ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
-								data_p->startaddress,
-								&data_p->DATA_chunk[data_pos_index], read_bytes);
-					} else
-					{
-						ret = sensor_spi_read((uint8_t) stream_p->param_interface,
-								data_p->startaddress | 0x80,
-								&data_p->DATA_chunk[data_pos_index], read_bytes);
-						//TODO: store this address in the dev_address in the future (when receiving the command)
+                /* Read the framelength*/
+                if (size_to_read > (int16_t)stream_p->framelength)
+                {
+                    read_bytes = stream_p->framelength;
+                }
+                else
+                {
+                    read_bytes = (uint16_t)size_to_read;
+                }
 
-					}
+                stream_chunkinfo_t *data_p = &stream_p->chunks[data_chunk_index];
 
-					size_to_read -= (int16_t)read_bytes;
+                data_p->DATA_chunk = (uint8_t*) stream_memory_alloc(read_bytes * sizeof(uint8_t));
 
-					/* Send the data to host*/
-					streaming_multiple_fifo_send_response(stream_p, data_chunk_index, read_bytes);
+                while (size_to_read > 0)
+                {
+                    if (stream_p->param_interface == STREAM_IF_I2C)
+                    {
+                        ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                                              data_p->startaddress,
+                                              &data_p->DATA_chunk[data_pos_index],
+                                              read_bytes);
+                    }
+                    else
+                    {
+                        ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                              data_p->startaddress | 0x80,
+                                              &data_p->DATA_chunk[data_pos_index],
+                                              read_bytes);
+                    }
 
-				}
+                    size_to_read -= (int16_t)read_bytes;
 
-				STREAM_SAFE_FREE(data_p->DATA_chunk);
-			}
+                    /* Send the data to host*/
+                    streaming_multiple_fifo_send_response(stream_p, data_chunk_index, read_bytes);
 
-			size_to_read = 0;
-			STREAM_SAFE_FREE(read_len_p->DATA_chunk);
-		}
-	}
+                }
 
-	return ret;
+                stream_safe_free(&data_p->DATA_chunk);
+            }
+
+            size_to_read = 0;
+            stream_safe_free(&read_len_p->DATA_chunk);
+        }
+    }
+
+    return ret;
 }
 
 /*!
@@ -1068,22 +1168,24 @@ static int8_t read_and_send_multiple_fifo_data(stream_descriptor_t *stream_p)
  */
 static int8_t read_stream_sample(stream_descriptor_t *stream_p)
 {
-	//TODO: turn this to a non-blocking read, with a post-processor handling sending the data
-	//TODO: implement in-place reading, directly inside the unified buffer, and not in the chunk data
-	int8_t ret = 0;
-	int16_t pin_status;
-	enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
-	enum coines_pin_direction gpio_dir;
+    /*
+     * TODO: turn this to a non-blocking read, with a post-processor handling sending the data
+     * TODO: implement in-place reading, directly inside the unified buffer, and not in the chunk data
+     */
+    int8_t ret = 0;
+    int16_t pin_status;
+    enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
+    enum coines_pin_direction gpio_dir;
 
-	/* read feature interrupts state for current stream */
-	if ((stream_p->intline_info != NULL) && (stream_p->mode == STREAM_MODE_POLLING))
-	{
-		/* Get the Interrupt line information and update them in the buffer for transmission */
-		for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
-		{
-			if (stream_feature_line_state[stream_p->intline_info[int_idx]] == 1)
-			{
-				 if (stream_p->hw_pin_state == 0)/*active low*/
+    /* read feature interrupts state for current stream */
+    if ((stream_p->intline_info != NULL) && (stream_p->mode == STREAM_MODE_POLLING))
+    {
+        /* Get the Interrupt line information and update them in the buffer for transmission */
+        for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
+        {
+            if (stream_feature_line_state[stream_p->intline_info[int_idx]] == 1)
+            {
+                if (stream_p->hw_pin_state == 0)/*active low*/
                 {
                     stream_p->DATA_intline[int_idx] = 0;
                 }
@@ -1091,17 +1193,21 @@ static int8_t read_stream_sample(stream_descriptor_t *stream_p)
                 {
                     stream_p->DATA_intline[int_idx] = 1;
                 }
-				stream_feature_line_state[stream_p->intline_info[int_idx]] = 0;
-			} else
-			{
-				pin_status = coines_get_pin_config(stream_p->intline_info[int_idx], &gpio_dir, &gpio_pin_val);
-				if(pin_status != COINES_SUCCESS)
-				{
-					stream_p->DATA_intline[int_idx] = (uint8_t) gpio_pin_val;
-				}
-				else
-				{
-					if (stream_p->hw_pin_state == 0) /*active low*/
+
+                stream_feature_line_state[stream_p->intline_info[int_idx]] = 0;
+            }
+            else
+            {
+                pin_status = coines_get_pin_config((enum coines_multi_io_pin)stream_p->intline_info[int_idx],
+                                                   &gpio_dir,
+                                                   &gpio_pin_val);
+                if (pin_status != COINES_SUCCESS)
+                {
+                    stream_p->DATA_intline[int_idx] = (uint8_t) gpio_pin_val;
+                }
+                else
+                {
+                    if (stream_p->hw_pin_state == 0) /*active low*/
                     {
                         stream_p->DATA_intline[int_idx] = 1;
                     }
@@ -1109,159 +1215,168 @@ static int8_t read_stream_sample(stream_descriptor_t *stream_p)
                     {
                         stream_p->DATA_intline[int_idx] = 0;
                     }
-				}				
-			}
-		}
-	}
+                }
+            }
+        }
+    }
 
-	if ((stream_p->read_mode == STREAM_READ_N_CHUNKS) || (stream_p->read_mode == STREAM_READ_2_CHUNKS_POLLING))
-	{
-		if (stream_p->param_interface == STREAM_IF_I2C)
-		{
-			if (stream_p->clear_on_write)
+    if ((stream_p->read_mode == STREAM_READ_N_CHUNKS) || (stream_p->read_mode == STREAM_READ_2_CHUNKS_POLLING))
+    {
+        if (stream_p->param_interface == STREAM_IF_I2C)
+        {
+            if (stream_p->clear_on_write)
             {
-                // Dummy byte information also read based on the input
-                ret = sensor_i2c_read((uint8_t)stream_p->dev_address, stream_p->reg_info.startaddress,
+                /* Dummy byte information also read based on the input */
+                ret = sensor_i2c_read((uint8_t)stream_p->dev_address,
+                                      stream_p->reg_info.startaddress,
                                       stream_p->reg_info.data_buf,
                                       (stream_p->reg_info.num_bytes_to_clear + stream_p->reg_info.dummy_byte));
             }
-			for (uint8_t i = 0; i < stream_p->chunk_count; i++)
-			{
-				stream_chunkinfo_t *chunk_p = &stream_p->chunks[i];
-				ret = sensor_i2c_read((uint8_t) stream_p->dev_address, chunk_p->startaddress,
-						chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
-			}
-			if ((stream_p->clear_on_write) && (COINES_SUCCESS == ret))
+
+            for (uint8_t i = 0; i < stream_p->chunk_count; i++)
             {
-                // Ignoring dummy byte if present and writing to register for clearing status register
-                ret = sensor_i2c_write((uint8_t)stream_p->dev_address, stream_p->reg_info.startaddress,
+                stream_chunkinfo_t *chunk_p = &stream_p->chunks[i];
+                ret = sensor_i2c_read((uint8_t) stream_p->dev_address,
+                                      chunk_p->startaddress,
+                                      chunk_p->DATA_chunk,
+                                      chunk_p->num_bytes_to_read);
+            }
+
+            if ((stream_p->clear_on_write) && (COINES_SUCCESS == ret))
+            {
+                /* Ignoring dummy byte if present and writing to register for clearing status register */
+                ret = sensor_i2c_write((uint8_t)stream_p->dev_address,
+                                       stream_p->reg_info.startaddress,
                                        &stream_p->reg_info.data_buf[stream_p->reg_info.dummy_byte],
                                        stream_p->reg_info.num_bytes_to_clear);
             }
-		} else
-		{
-			if (stream_p->clear_on_write)
+        }
+        else
+        {
+            if (stream_p->clear_on_write)
             {
-                // Dummy byte information also read based on the input
-                ret = sensor_spi_read((uint8_t)stream_p->param_interface, stream_p->reg_info.startaddress,
+                /* Dummy byte information also read based on the input */
+                ret = sensor_spi_read((uint8_t)stream_p->param_interface,
+                                      stream_p->reg_info.startaddress,
                                       stream_p->reg_info.data_buf,
                                       (stream_p->reg_info.num_bytes_to_clear + stream_p->reg_info.dummy_byte));
             }
-			for (uint8_t i = 0; i < stream_p->chunk_count; i++)
-			{
-				stream_chunkinfo_t *chunk_p = &stream_p->chunks[i];
-				//TODO: store this address in the dev_address in the future (when receiving the command)
-				ret = sensor_spi_read((uint8_t) stream_p->param_interface, chunk_p->startaddress | 0x80,
-						chunk_p->DATA_chunk, chunk_p->num_bytes_to_read);
-			}
-			if ((stream_p->clear_on_write) && (COINES_SUCCESS == ret))
+
+            for (uint8_t i = 0; i < stream_p->chunk_count; i++)
             {
-                // Ignoring dummy byte if present and writing to register for clearing status register
-                ret = sensor_spi_write((uint8_t)stream_p->param_interface, stream_p->reg_info.startaddress,
+                stream_chunkinfo_t *chunk_p = &stream_p->chunks[i];
+                ret = sensor_spi_read((uint8_t) stream_p->param_interface,
+                                      chunk_p->startaddress | 0x80,
+                                      chunk_p->DATA_chunk,
+                                      chunk_p->num_bytes_to_read);
+            }
+
+            if ((stream_p->clear_on_write) && (COINES_SUCCESS == ret))
+            {
+                /* Ignoring dummy byte if present and writing to register for clearing status register */
+                ret = sensor_spi_write((uint8_t)stream_p->param_interface,
+                                       stream_p->reg_info.startaddress,
                                        &stream_p->reg_info.data_buf[stream_p->reg_info.dummy_byte],
                                        stream_p->reg_info.num_bytes_to_clear);
             }
-		}
+        }
 
-		if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
-		{
-			stream_p->packet_timestamp_us = coines_get_micro_sec();
-		}
-	} else
-	{
-		ret = DECODER_RET_COMM_FAILED;
-	}
+        if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
+        {
+            stream_p->packet_timestamp_us = coines_get_micro_sec();
+        }
+    }
+    else
+    {
+        ret = DECODER_RET_COMM_FAILED;
+    }
 
-	return ret;
+    return ret;
 }
+
 /*!
  * @brief This function read interrupts
  */
 void read_interrupt_line_state(uint8_t multi_io)
 {
-	stream_descriptor_t *stream_p;
-	enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
-	enum coines_pin_direction gpio_dir;
+    stream_descriptor_t *stream_p;
+    enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
+    enum coines_pin_direction gpio_dir;
 
-	for (uint8_t int_idx = 0; int_idx < stream_active_count; int_idx++)
-	{
-		stream_p = &stream_descriptors[int_idx];
-		if (stream_p->data_ready_int == multi_io) 
-		{
-			if(stream_p->intline_info != NULL)
-			{
-				for (uint8_t int_line = 0; int_line < stream_p->intline_count; int_line++)
-				{
-					coines_get_pin_config(multi_io_map[stream_p->intline_info[int_line]], &gpio_dir, &gpio_pin_val);
-					stream_p->DATA_intline[int_line] = (uint8_t) gpio_pin_val;	
-				}
-			}
-			
-			active_pins |= 1 << multi_io;
-		}
-	}
-	
-}
-/*!
- *  @brief This API function is used to get the multiio index of the pin.
- *
- *  @param[in] pin_number : pin number for getting the index.
- *
- *  @return pin index.
- *
- */
-static uint32_t get_multiio_index(enum coines_multi_io_pin pin_number)
-{
-    uint32_t i;
-
-    if (pin_number != 0xff)
+    for (uint8_t int_idx = 0; int_idx < stream_active_count; int_idx++)
     {
-        for (i = 0; i < COINES_SHUTTLE_PIN_MAX; i++)
+        stream_p = &stream_descriptors[int_idx];
+        if (stream_p->data_ready_int == multi_io)
         {
-            if (pin_number == multi_io_map[i])/* && int_pin_usage_native_emulated[i] == true) */
+            if (stream_p->intline_info != NULL)
             {
-                return i;
+                for (uint8_t int_line = 0; int_line < stream_p->intline_count; int_line++)
+                {
+
+#if defined(MCU_APP20)
+                	coines_get_pin_config((enum coines_multi_io_pin)get_hw_pin(stream_p->intline_info[int_line]),
+                			&gpio_dir,
+							&gpio_pin_val);
+#else
+                	coines_get_pin_config((enum coines_multi_io_pin)multi_io_map[stream_p->intline_info[int_line]],
+                			&gpio_dir,
+							&gpio_pin_val);
+#endif
+
+                    stream_p->DATA_intline[int_line] = (uint8_t) gpio_pin_val;
+                }
             }
+
+            active_pins |= 1 << multi_io;
         }
     }
-
-    return pin_number;
 }
+
 /*!
  * @brief This function handles interrupts associated with interrupt streaming mode
  *
- *
- * @param[in] pin : hw pin number that triggered the interrupt
- * @param[in] polarity : polarity of the active state of this pin
+ * @param[in] timestamp: timestamp in nanosecond
+ * @param[in] multiio_pin : multiio pin number that triggered the interrupt
+ * @param[in] multiio_pin_polarity : polarity of the active state of this multiio pin
  *
  * @return None
  * @retval None
  */
 
-static void handler_drdy_int_event(uint32_t param1, uint32_t param2)
+static void handler_drdy_int_event(uint64_t timestamp, uint32_t multiio_pin, uint32_t multiio_pin_polarity)
 {
-	(void)param2;
+    (void)multiio_pin_polarity;
+    job_data_t job_data = { 0 };
 
-	uint32_t multiio_index;
-	multiio_index = get_multiio_index(param1);
-	read_interrupt_line_state(multiio_index);
-	if(int_streaming_data == 0)
-		int_streaming_data = 1;
+    job_data.multiio_pin = multiio_pin;
+    job_data.timestamp_us = timestamp / 1000;
+
+    if (job_queue_add_job(stream_interrupt_data_acq, (uint8_t *)&job_data, true) != JOB_QUEUE_SUCCESS)
+    {
+        /* TODO - Need to handle if job queue is full */
+    }
 }
 
 /*!
  * @brief This function handles feature event
  */
-static void handler_feature_event(uint32_t param1, uint32_t param2)
+static void handler_feature_event(uint32_t multiio_pin, uint32_t multiio_pin_polarity)
 {
-	(void)param2;
+    (void)multiio_pin_polarity;
 
-	uint8_t multiio_num = get_multiio_index(param1);
-	if (multiio_num < COINES_SHUTTLE_PIN_MAX)
-	{
-		stream_feature_line_state[multiio_num] = 1;        
-		/* TODO: use polarity */
-	}
+#if !defined(MCU_NICLA) && !defined(MCU_APP20) /*TODO: Need to check whether this is required for nicla*/
+    if (multiio_pin < COINES_SHUTTLE_PIN_MAX && int_pin_usage_native_emulated[multiio_pin])
+    {
+    	/*lint -e661 */
+        stream_feature_line_state[multiio_pin] = 1;
+    }
+#else
+    if (multiio_pin < COINES_SHUTTLE_PIN_MAX)
+    {
+    	stream_feature_line_state[multiio_pin] = 1;
+    }
+
+#endif
 }
 
 /*!
@@ -1269,70 +1384,78 @@ static void handler_feature_event(uint32_t param1, uint32_t param2)
  */
 static void stream_allocate_fifo_buffers(stream_fifo_descriptor_t *fifo_stream_p)
 {
-	fifo_stream_p->fifo_data = (uint8_t*) stream_memory_alloc(fifo_stream_p->number_bytes * sizeof(uint8_t));
-	/* allocate space for the Int data to be read from the sensor */
-	if (fifo_stream_p->intline_count)
-	{
-		fifo_stream_p->DATA_intline = (uint8_t*) stream_memory_alloc(
-				fifo_stream_p->intline_count * sizeof(uint8_t));
-	}
+    fifo_stream_p->fifo_data = (uint8_t*) stream_memory_alloc(fifo_stream_p->number_bytes * sizeof(uint8_t));
 
+    /* allocate space for the Int data to be read from the sensor */
+    if (fifo_stream_p->intline_count)
+    {
+        fifo_stream_p->DATA_intline = (uint8_t*) stream_memory_alloc(fifo_stream_p->intline_count * sizeof(uint8_t));
+    }
 }
+
 /*!
  * @brief This function deallocate fifo buffers
  */
 static void stream_deallocate_fifo_buffers(stream_fifo_descriptor_t *fifo_stream_p)
 {
-	STREAM_SAFE_FREE(fifo_stream_p->fifo_data);
-	STREAM_SAFE_FREE(fifo_stream_p->intline_info);
-	STREAM_SAFE_FREE(fifo_stream_p->DATA_intline);
+    stream_safe_free(&fifo_stream_p->fifo_data);
+    stream_safe_free(&fifo_stream_p->intline_info);
+    stream_safe_free(&fifo_stream_p->DATA_intline);
 }
+
 /*!
  * @brief This function allocate buffers
  */
 static void stream_allocate_buffers(stream_descriptor_t *stream_p)
 {
-	/* allocates buffers for reading the data from the sensors - all other structures holding the config data have been allocated when the config was received */
-	for (uint8_t chunk_idx = 0; chunk_idx < stream_p->chunk_count; chunk_idx++)
-	{
-		stream_chunkinfo_t *chunk_p = &stream_p->chunks[chunk_idx];
-		if (chunk_p->num_bytes_to_read != 0)
-			/* allocate space for the register data to be read from the sensor */
-			chunk_p->DATA_chunk = (uint8_t*) stream_memory_alloc(chunk_p->num_bytes_to_read * sizeof(uint8_t));
-	}
-	/* allocate space for the Int data to be read from the sensor */
-	if (stream_p->intline_count)
-	{
-		stream_p->DATA_intline = (uint8_t*) stream_memory_alloc(stream_p->intline_count * sizeof(uint8_t));
-	}
+    /* allocates buffers for reading the data from the sensors - all other structures holding the config data have been
+     * allocated when the config was received */
+    for (uint8_t chunk_idx = 0; chunk_idx < stream_p->chunk_count; chunk_idx++)
+    {
+        stream_chunkinfo_t *chunk_p = &stream_p->chunks[chunk_idx];
+        if (chunk_p->num_bytes_to_read != 0)
+        {
+            /* allocate space for the register data to be read from the sensor */
+            chunk_p->DATA_chunk = (uint8_t*) stream_memory_alloc(chunk_p->num_bytes_to_read * sizeof(uint8_t));
+        }
+    }
+
+    /* allocate space for the Int data to be read from the sensor */
+    if (stream_p->intline_count)
+    {
+        stream_p->DATA_intline = (uint8_t*) stream_memory_alloc(stream_p->intline_count * sizeof(uint8_t));
+    }
 }
+
 /*!
  * @brief This function deallocate buffers
  */
 static void stream_deallocate_buffers(stream_descriptor_t *stream_p)
 {
-	/* deallocate all buffers (both for sensor data and config data */
+    /* deallocate all buffers (both for sensor data and config data */
 
-	if (stream_p->read_mode > STREAM_READ_N_CHUNKS)
-	{
-		/* Interrupt status register chunk*/
-		stream_chunkinfo_t *chunk_p = &stream_p->chunks[0];
-		/* allocate space for the register data to be read from the sensor */
-		STREAM_SAFE_FREE(chunk_p->DATA_chunk);
-	} else
-	{
+    if (stream_p->read_mode > STREAM_READ_N_CHUNKS)
+    {
+        /* Interrupt status register chunk*/
+        stream_chunkinfo_t *chunk_p = &stream_p->chunks[0];
 
-		for (uint8_t chunk_idx = 0; chunk_idx < stream_p->chunk_count; chunk_idx++)
-		{
-			stream_chunkinfo_t *chunk_p = &stream_p->chunks[chunk_idx];
-			STREAM_SAFE_FREE(chunk_p->DATA_chunk);
-		}
-	}
+        /* allocate space for the register data to be read from the sensor */
+        stream_safe_free(&chunk_p->DATA_chunk);
+    }
+    else
+    {
 
-	STREAM_SAFE_FREE(stream_p->chunks);
-	STREAM_SAFE_FREE(stream_p->chunk_mask);
-	STREAM_SAFE_FREE(stream_p->intline_info);
-	STREAM_SAFE_FREE(stream_p->DATA_intline);
+        for (uint8_t chunk_idx = 0; chunk_idx < stream_p->chunk_count; chunk_idx++)
+        {
+            stream_chunkinfo_t *chunk_p = &stream_p->chunks[chunk_idx];
+            stream_safe_free(&chunk_p->DATA_chunk);
+        }
+    }
+
+    stream_safe_free((uint8_t **)&stream_p->chunks); /*lint !e740 */
+    stream_safe_free(&stream_p->chunk_mask);
+    stream_safe_free(&stream_p->intline_info);
+    stream_safe_free(&stream_p->DATA_intline);
 
 }
 
@@ -1341,354 +1464,427 @@ static void stream_deallocate_buffers(stream_descriptor_t *stream_p)
  */
 static void polling_event_handler()
 {
-	if (poll_streaming_data == 0)
-	{
-		poll_streaming_data = 1;
-	}	
+    ++poll_stream_triggered;
 }
 
 /*!
  * @brief This function check whether polling/interrupt data is available and send the acquired data
  */
-void send_old_protocol_streaming_response(void)
+void send_legacy_protocol_streaming_response(void)
 {
-	if (poll_streaming_data == 1)
-	{
-		stream_polling_data_acq();
-		poll_streaming_data = 0;
-	}
-	if (int_streaming_data == 1)
-	{
-		stream_interrupt_data_acq(active_pins);
-		int_streaming_data = 0;
-	}
+
+    if ((stream_settings.stream_mode == STREAM_MODE_POLLING ||
+         stream_settings.stream_mode == STREAM_MODE_FIFO_POLLING) && poll_stream_triggered)
+    {
+        stream_polling_data_acq();
+    }
+    else if (stream_settings.stream_mode == STREAM_MODE_INTERRUPT)
+    {
+        (void)job_queue_execute_jobs();
+    }
 }
+
 /*!
  * @brief This function start streaming
  */
 void stream_start(void)
 {
-	//TODO: have a common handling of the feature interrupts (set a unique handler for them maybe)
-	stream_descriptor_t *stream_p;
-	stream_fifo_descriptor_t *fifo_stream_p;
-	uint8_t polling_stream_count = 0;
+    /*TODO: have a common handling of the feature interrupts (set a unique handler for them maybe) */
+    stream_descriptor_t *stream_p;
+    stream_fifo_descriptor_t *fifo_stream_p;
+    uint8_t polling_stream_count = 0;
+    enum coines_pin_interrupt_mode interrupt_mode;
 
-	streaming_running = 1;
+    if ((stream_active_count > 0) && (stream_settings.stream_mode == STREAM_MODE_INTERRUPT))
+    {
+        /* Intialize job_queue and mbuf for interrupt streaming */
+        (void)job_queue_init();
+        (void)mbuf_init(mbuf_user_evt_handler);
+    }
+    for (uint8_t i = 0; i < stream_active_count; i++)
+    {
+        if (stream_settings.stream_mode == STREAM_MODE_FIFO_POLLING)
+        {
+            fifo_stream_p = &stream_fifo_descriptors;
 
-	for (uint8_t i = 0; i < stream_active_count; i++)
-	{
+            /* if GST period is not set, it's impossible to configure a polling stream, so skip it */
+            if (stream_settings.GST_period_us == 0)
+            {
+                continue;
+            }
 
-		if (stream_settings.stream_mode == STREAM_MODE_FIFO_POLLING)
-		{
-			fifo_stream_p = &stream_fifo_descriptors;
+            /* calculate number of GST ticks in this sensor's sampling period */
+            if (fifo_stream_p->sampling_period_us <= stream_settings.GST_period_us)
+            {
+                fifo_stream_p->GST_multiplier = 1;
+            }
+            else
+            {
+                fifo_stream_p->GST_multiplier = fifo_stream_p->sampling_period_us / stream_settings.GST_period_us;
+            }
 
-			/* if GST period is not set, it's impossible to configure a polling stream, so skip it */
-			if (stream_settings.GST_period_us == 0)
-			{
-				continue;
-			}
+            /* initialize GST counter for count-down */
+            fifo_stream_p->GST_ticks_counter = fifo_stream_p->GST_multiplier;
 
-			/* calculate number of GST ticks in this sensor's sampling period */
-			if (fifo_stream_p->sampling_period_us <= stream_settings.GST_period_us)
+            stream_allocate_fifo_buffers(fifo_stream_p);
 
-			{
-				fifo_stream_p->GST_multiplier = 1;
-			} else
-			{
-				fifo_stream_p->GST_multiplier = fifo_stream_p->sampling_period_us
-						/ stream_settings.GST_period_us;
-			}
+            ++polling_stream_count;
+        }
+        else
+        {
 
-			/* initialize GST counter for count-down */
-			fifo_stream_p->GST_ticks_counter = fifo_stream_p->GST_multiplier;
+            stream_p = &stream_descriptors[i];
 
-			stream_allocate_fifo_buffers(fifo_stream_p);
+            stream_allocate_buffers(stream_p);
 
-			++polling_stream_count;
-		} else
-		{
+            if (stream_p->mode == STREAM_MODE_INTERRUPT)
+            {
+                stream_p->data_packet_counter = 0;
 
-			stream_p = &stream_descriptors[i];
+                if (stream_p->hw_pin_state == 0)/*active low*/
+                {
+                    interrupt_mode = COINES_PIN_INTERRUPT_FALLING_EDGE;
+                }
+                else
+                {
+                    interrupt_mode = COINES_PIN_INTERRUPT_RISING_EDGE;
+                }
 
-			stream_allocate_buffers(stream_p);
+                coines_attach_timed_interrupt((enum coines_multi_io_pin)stream_p->data_ready_int,
+                                            handler_drdy_int_event,
+                                            interrupt_mode);
 
-			if (stream_p->mode == STREAM_MODE_INTERRUPT)
-			{
-				stream_p->data_packet_counter = 0;
+                /*
+                * TODO:
+                * Dummy data read since magnetometer interrupt stays high till the sensor data is read.
+                */
 
-				coines_attach_interrupt(stream_p->data_ready_int, handler_drdy_int_event, COINES_PIN_INTERRUPT_RISING_EDGE);
+                if (stream_p->read_mode == STREAM_READ_N_CHUNKS_INTERRUPT_STATUS_FRAMELEN)
+                {
+                    if (read_and_send_multiple_fifo_data(stream_p) != 0)
+                    {
+                        return;
+                    }
+                }
+                else if (stream_p->read_mode == STREAM_READ_2_CHUNKS_LITTLEENDIAN_FRAMELEN)
+                {
+                    if (read_and_send_single_fifo_data(stream_p) != 0)
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    if (read_stream_sample(stream_p) != 0)
+                    {
+                        return;
+                    }
+                }
+            }
+            else if ((stream_p->mode == STREAM_MODE_POLLING))
+            {
+                /* if GST period is not set, it's impossible to configure a polling stream, so skip it */
+                if (stream_settings.GST_period_us == 0)
+                {
+                    continue;
+                }
 
-				//TODO:
-				// Dummy data read since magnetometer interrupt stays high till the sensor data is read.
+                /* calculate number of GST ticks in this sensor's sampling period */
+                if (stream_p->sampling_period_us <= stream_settings.GST_period_us)
+                {
+                    stream_p->GST_multiplier = 1;
+                }
+                else
+                {
+                    stream_p->GST_multiplier = stream_p->sampling_period_us / stream_settings.GST_period_us;
+                }
 
-				if (stream_p->read_mode == STREAM_READ_N_CHUNKS_INTERRUPT_STATUS_FRAMELEN)
-				{
-					if (read_and_send_multiple_fifo_data(stream_p) != 0)
-					{
-						return;
-					}
-				} else if (stream_p->read_mode == STREAM_READ_2_CHUNKS_LITTLEENDIAN_FRAMELEN)
-				{
-					if (read_and_send_single_fifo_data(stream_p) != 0)
-					{
-						return;
-					}
-				} else
-				{
-					if (read_stream_sample(stream_p) != 0)
-					{
-						return;
-					}
-				}
-			} else if ((stream_p->mode == STREAM_MODE_POLLING))
-			{
-				/* if GST period is not set, it's impossible to configure a polling stream, so skip it */
-				if (stream_settings.GST_period_us == 0)
-				{
-					continue;
-				}
+                /* initialize GST counter for count-down */
+                stream_p->GST_ticks_counter = stream_p->GST_multiplier;
 
-				/* calculate number of GST ticks in this sensor's sampling period */
-				if (stream_p->sampling_period_us <= stream_settings.GST_period_us)
-				{
-					stream_p->GST_multiplier = 1;
-				} else
-				{
-					stream_p->GST_multiplier = stream_p->sampling_period_us
-							/ stream_settings.GST_period_us;
-				}
+                if (stream_p->intline_info != NULL)
+                {
+                    for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
+                    {
+                        if (stream_p->hw_pin_state == 0)/*active low*/
+                        {
+                            interrupt_mode = COINES_PIN_INTERRUPT_FALLING_EDGE;
+                        }
+                        else
+                        {
+                            interrupt_mode = COINES_PIN_INTERRUPT_RISING_EDGE;
+                        }
 
-				/* initialize GST counter for count-down */
-				stream_p->GST_ticks_counter = stream_p->GST_multiplier;
+                        coines_attach_interrupt((enum coines_multi_io_pin)stream_p->intline_info[int_idx],
+                                                handler_feature_event,
+                                                interrupt_mode);
 
-				if (stream_p->intline_info != NULL)
-				{
-					for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
-					{
-						coines_attach_interrupt(stream_p->intline_info[int_idx], handler_feature_event, COINES_PIN_INTERRUPT_RISING_EDGE);
+                    }
+                }
 
-					}
-				}
-				++polling_stream_count;
-			}
-		}
-	}
-
-	if (polling_stream_count > 0)
-	{
-		//TODO: rename this to polling timer or something
-		/* Timer 0 init for Sensor Polling streaming */
-		coines_timer_config(COINES_TIMER_INSTANCE_0,polling_event_handler);
-		coines_timer_start(COINES_TIMER_INSTANCE_0,stream_settings.GST_period_us);
-	}
+                ++polling_stream_count;
+            }
+        }
+    }
+    if (polling_stream_count > 0)
+    {
+        /* Timer 0 init for Sensor Polling streaming */
+        coines_timer_config(COINES_TIMER_INSTANCE_0, polling_event_handler);
+        coines_timer_start(COINES_TIMER_INSTANCE_0, stream_settings.GST_period_us);
+    }
 }
+
 /*!
  * @brief This API will stop  the streaming
  */
 void stream_stop(void)
 {
-	stream_descriptor_t *stream_p;
-	stream_fifo_descriptor_t *fifo_stream_p;
-	uint8_t polling_stream_count = 0;
-	uint8_t interrupt_stream_count = 0;
+    stream_descriptor_t *stream_p;
+    stream_fifo_descriptor_t *fifo_stream_p;
+    uint8_t polling_stream_count = 0;
+    uint8_t interrupt_stream_count = 0;
 
-	/* mark streaming as stopped, and stop polling timer if it is running */
-	streaming_running = 0;
+    for (uint8_t i = 0; i < stream_active_count; i++)
+    {
+        if (stream_settings.stream_mode == STREAM_MODE_FIFO_POLLING)
+        {
+            fifo_stream_p = &stream_fifo_descriptors;
+            stream_deallocate_fifo_buffers(fifo_stream_p);
+            memset(fifo_stream_p, 0, sizeof(stream_fifo_descriptor_t));
+            ++polling_stream_count;
+        }
+        else
+        {
+            stream_p = &stream_descriptors[i];
 
-	for (uint8_t i = 0; i < stream_active_count; i++)
-	{
+            if (stream_p->mode == STREAM_MODE_INTERRUPT)
+            {
+                bhi_streaming_configured = false;
+                coines_detach_timed_interrupt((enum coines_multi_io_pin)stream_p->data_ready_int);
+                ++interrupt_stream_count;
+            }
+            else if (stream_p->mode == STREAM_MODE_POLLING)
+            {
+                if (stream_p->intline_info != NULL)
+                {
+                    for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
+                    {
+                        coines_detach_interrupt((enum coines_multi_io_pin)stream_p->intline_info[int_idx]);
+                    }
+                }
 
-		if (stream_settings.stream_mode == STREAM_MODE_FIFO_POLLING)
-		{
-			fifo_stream_p = &stream_fifo_descriptors;
-			stream_deallocate_fifo_buffers(fifo_stream_p);
-			memset(fifo_stream_p, 0, sizeof(stream_fifo_descriptor_t));
-			coines_timer_stop(COINES_TIMER_INSTANCE_0);
-		} else
-		{
-			stream_p = &stream_descriptors[i];
+                ++polling_stream_count;
+            }
 
-			if (stream_p->mode == STREAM_MODE_INTERRUPT)
-			{
-				++interrupt_stream_count;
-				coines_detach_interrupt(stream_p->data_ready_int);
-			} else if (stream_p->mode == STREAM_MODE_POLLING)
-			{
-				if (stream_p->intline_info != NULL)
-				{
-					for (uint8_t int_idx = 0; int_idx < stream_p->intline_count; int_idx++)
-					{
-						(void) coines_detach_interrupt(
-								stream_p->intline_info[int_idx]);
-					}
-				}
-				++polling_stream_count;
-			}
+            stream_deallocate_buffers(stream_p);
 
-			stream_deallocate_buffers(stream_p);
+            memset(stream_p, 0, sizeof(stream_descriptor_t));
+        }
+    }
 
-			memset(stream_p, 0, sizeof(stream_descriptor_t));
-		}
-	}
-	stream_active_count = 0;
+    stream_active_count = 0;
 
-	if (polling_stream_count > 0)
-	{
-		//TODO: rename this to polling timer or something
-		/* Timer 0 init for Sensor Polling streaming */
-		coines_timer_stop(COINES_TIMER_INSTANCE_0);
-	}
+    if (polling_stream_count > 0)
+    {
+        /* Timer 0 init for Sensor Polling streaming */
+        coines_timer_stop(COINES_TIMER_INSTANCE_0);
+    }
+    else if(interrupt_stream_count > 0)
+    {
+        /* Deinit the job_queue and mbuf */
+        job_queue_deinit();
+        mbuf_deinit();
+    }
 
-	//TODO: delete any pending int
+    /*TODO: delete any pending int */
 }
+
 /*!
  * @brief This function will stream the polling data
  */
 void stream_polling_data_acq(void)
 {
-	stream_descriptor_t *stream_p = stream_descriptors;
-	stream_fifo_descriptor_t *fifostream_p;
-	uint16_t identifier = 0;
+    stream_descriptor_t *stream_p = stream_descriptors;
+    stream_fifo_descriptor_t *fifostream_p;
+    uint16_t identifier = 0;
 
-	for (uint8_t i = 0; i < stream_active_count; i++)
-	{
+    --poll_stream_triggered;
+    for (uint8_t i = 0; i < stream_active_count; i++)
+    {
 
-		if (stream_settings.stream_mode == STREAM_MODE_POLLING)
-		{
-			stream_p = &stream_descriptors[i];
-			/* decrement each tick down-counter */
-			if (stream_p->GST_ticks_counter > 0)
-				stream_p->GST_ticks_counter--;
+        if (stream_settings.stream_mode == STREAM_MODE_POLLING)
+        {
+            stream_p = &stream_descriptors[i];
 
-			/* if the tick-counter is 0, it's time to poll the corresponding sensor */
-			if (stream_p->GST_ticks_counter == 0)
-			{
-				/* reload tick-counter */
-				stream_p->GST_ticks_counter = stream_p->GST_multiplier;
+            /* decrement each tick down-counter */
+            if (stream_p->GST_ticks_counter > 0)
+            {
+                stream_p->GST_ticks_counter--;
+            }
 
-				if (read_stream_sample(stream_p) == 0)
-				{
-					identifier |= (uint16_t)1 << i;
-					//TODO: Need to change this code for supporting Multiple packet support
-					/* Send the data to communication interface */
-					if (stream_p->read_mode != STREAM_READ_2_CHUNKS_POLLING)
-						streaming_polling_send_response(stream_p);
-				}
-			}
-		} else
-		{
-			/*This feature is implemented for FIFO read feature available in DD2.0 for old sensors
-			 * In this a timer is started, after the elapse of timer ticks FIFO data is read.*/
-			fifostream_p = &stream_fifo_descriptors;
-			if (fifostream_p->mode == STREAM_MODE_FIFO_POLLING)
-			{
-				/* decrement each tick down-counter */
-				if (fifostream_p->GST_ticks_counter > 0)
-				{
-					fifostream_p->GST_ticks_counter--;
-				}
+            /* if the tick-counter is 0, it's time to poll the corresponding sensor */
+            if (stream_p->GST_ticks_counter == 0)
+            {
+                /* reload tick-counter */
+                stream_p->GST_ticks_counter = stream_p->GST_multiplier;
 
-				/* if the tick-counter is 0, it's time to poll the corresponding sensor */
-				if (fifostream_p->GST_ticks_counter == 0)
-				{
-					/* reload tick-counter */
-					fifostream_p->GST_ticks_counter = fifostream_p->GST_multiplier;
+                if (read_stream_sample(stream_p) == 0)
+                {
+                    identifier |= (uint16_t)(1 << i);
 
-					if (read_fifo_polling_sample(fifostream_p) == 0)
-					{
-						/* No Multiple channel command is expected*/
-						streaming_fifo_send_response(fifostream_p);
+                    /* Send the data to communication interface */
+                    if (stream_p->read_mode != STREAM_READ_2_CHUNKS_POLLING)
+                    {
+                        streaming_polling_send_response(stream_p);
+                    }
+                }
+            }
+        }
+        else
+        {
+            /*This feature is implemented for FIFO read feature available in DD2.0 for old sensors
+             * In this a timer is started, after the elapse of timer ticks FIFO data is read.*/
+            fifostream_p = &stream_fifo_descriptors;
+            if (fifostream_p->mode == STREAM_MODE_FIFO_POLLING)
+            {
+                /* decrement each tick down-counter */
+                if (fifostream_p->GST_ticks_counter > 0)
+                {
+                    fifostream_p->GST_ticks_counter--;
+                }
 
-					}
-				}
-			}
-		}
+                /* if the tick-counter is 0, it's time to poll the corresponding sensor */
+                if (fifostream_p->GST_ticks_counter == 0)
+                {
+                    /* reload tick-counter */
+                    fifostream_p->GST_ticks_counter = fifostream_p->GST_multiplier;
 
-		if (decoder_stream_samples_count == 1)
-		{
-			stream_stop();
-			decoder_stream_samples_count = 0;
-		}
-	}
+                    if (read_fifo_polling_sample(fifostream_p) == 0)
+                    {
+                        /* No Multiple channel command is expected*/
+                        streaming_fifo_send_response(fifostream_p);
 
-	//TODO: Done temporarily for fix for old polling response, need to aligned with the streaming_polling_send_response function
-	if (identifier != 0)
-	{
-		if (stream_p->read_mode == STREAM_READ_2_CHUNKS_POLLING)
-			streaming_polling_old_send_response(identifier);
-	}
+                    }
+                }
+            }
+        }
+    }
+
+    /*TODO: Done temporarily for fix for old polling response, need to aligned with the streaming_polling_send_response
+     * function */
+    if (identifier != 0)
+    {
+        if (stream_p->read_mode == STREAM_READ_2_CHUNKS_POLLING)
+        {
+            streaming_polling_old_send_response(identifier);
+        } 
+    }
+    /* Stop streaming, if steaming configured with single sample */
+    if (decoder_stream_samples_count == 1)
+    {
+        decoder_stream_samples_count = 0;
+        stream_stop();
+    }
 }
+
 /*!
  * @brief This function will stream interrupt data
  */
-void stream_interrupt_data_acq(uint32_t active_pins)
+void stream_interrupt_data_acq(uint8_t *p_data)
 {
-	stream_descriptor_t *stream_p;
+    stream_descriptor_t *stream_p;
+    enum coines_pin_value gpio_pin_val = COINES_PIN_VALUE_LOW;
+    enum coines_pin_direction gpio_dir;
+    /*lint -e826 */
+    job_data_t *job_data = (job_data_t*)p_data;
 
-	for (uint8_t i = 0; (i < stream_active_count) && (active_pins); i++)
-	{
-		stream_p = &stream_descriptors[i];
-		if (stream_p->mode == STREAM_MODE_INTERRUPT)
-		{
-			/* Find if the pin value is matching */
-			//TODO: use a fast hash-table/mapping
-			if ((1 << stream_p->data_ready_int) & active_pins)
-			{
-				active_pins &= ~((uint32_t) (1 << stream_p->data_ready_int));
-				if (stream_p->read_mode == STREAM_READ_N_CHUNKS)
-				{
-					if (read_stream_sample(stream_p) == 0)
-					{
+    for (uint8_t i = 0; i < stream_active_count; i++)
+    {
+        stream_p = &stream_descriptors[i];
+        if (stream_p->mode == STREAM_MODE_INTERRUPT)
+        {
+            /* Find if the pin value is matching */
+            /*TODO: use a fast hash-table/mapping */
+            if (stream_p->data_ready_int == job_data->multiio_pin)
+            {
+                if (stream_p->intline_info != NULL)
+                {
+                    for (uint8_t int_line = 0; int_line < stream_p->intline_count; int_line++)
+                    {
+#if defined(MCU_APP20)
+                    	coines_get_pin_config((enum coines_multi_io_pin)get_hw_pin(stream_p->intline_info[int_line]),
+                    			&gpio_dir,
+								&gpio_pin_val);
+#else
+                    	coines_get_pin_config((enum coines_multi_io_pin)multi_io_map[stream_p->intline_info[int_line]],
+                    			&gpio_dir,
+								&gpio_pin_val);
+#endif
+                    	stream_p->DATA_intline[int_line] = (uint8_t) gpio_pin_val;
+                    }
+                }
 
-						/* Send the data to communication interface */
-						streaming_interrupt_send_response(stream_p);
-					}
-				}
-				/* read the configured data chunks for current stream */
-				else if (stream_p->read_mode == STREAM_READ_N_CHUNKS_INTERRUPT_STATUS_FRAMELEN)
-				{
+                if (stream_p->read_mode == STREAM_READ_N_CHUNKS)
+                {
+                    if (read_stream_sample(stream_p) == 0)
+                    {
+                        /* Update timestamp */
+                        if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
+                        {
+                            memcpy(&stream_p->packet_timestamp_us, &job_data->timestamp_us, sizeof(uint64_t));
+                        }
 
-					/* Used in BHY2 fifo streaming. In this response is sent as soon as data is read as huge amount of FIFO
-					 * data is read in Multiple packets*/
-					if (read_and_send_multiple_fifo_data(stream_p) != 0)
-					{
-						/* Need to define error scenarios at later stage*/
-					}
+                        /* Send the data to communication interface */
+                        streaming_interrupt_send_response(stream_p);
+                    }
+                }
+                /* read the configured data chunks for current stream */
+                else if (stream_p->read_mode == STREAM_READ_N_CHUNKS_INTERRUPT_STATUS_FRAMELEN)
+                {
+                    bhi_streaming_configured = true;
 
-					if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
-					{
-						stream_p->packet_timestamp_us = coines_get_micro_sec();
-					}
-				} else
-				{
-					if (stream_p->read_mode == STREAM_READ_2_CHUNKS_LITTLEENDIAN_FRAMELEN)
-					{
-						/* Used in case of BHY1, where only one FIFO is available*/
-						if (read_and_send_single_fifo_data(stream_p) != 0)
-						{
-							/* Need to define error scenarios at later stage*/
-						}
-					}
-				}
-				//break;
-			}
-		}
-	}
+                    /* Used in BHY2 fifo streaming. In this response is sent as soon as data is read as huge amount of FIFO
+                     * data is read in Multiple packets*/
+                    if (read_and_send_multiple_fifo_data(stream_p) != 0)
+                    {
+                        /* Need to define error scenarios at later stage*/
+                    }
+
+                    if (stream_settings.ts_mode == STREAM_USE_TIMESTAMP)
+                    {
+                        stream_p->packet_timestamp_us = coines_get_micro_sec();
+                    }
+                }
+                else
+                {
+                    if (stream_p->read_mode == STREAM_READ_2_CHUNKS_LITTLEENDIAN_FRAMELEN)
+                    {
+                        /* Used in case of BHY1, where only one FIFO is available*/
+                        if (read_and_send_single_fifo_data(stream_p) != 0)
+                        {
+                            /* Need to define error scenarios at later stage*/
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
+
 /*!
  * @brief This function will allocates memory
  */
 void* stream_memory_alloc(uint32_t size)
 {
-	void *memptr = NULL;
+    void *memptr;
 
-	memptr = malloc(size);
-	if (memptr != NULL)
-	{
-		memset(memptr, 0, size);
-	}
+    memptr = malloc(size);
+    if (memptr != NULL)
+    {
+        memset(memptr, 0, size);
+    }
 
-	return memptr;
+    return memptr;
 }
 
 /** @}*/

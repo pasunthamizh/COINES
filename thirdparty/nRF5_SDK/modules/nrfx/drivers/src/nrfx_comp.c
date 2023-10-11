@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2015 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -108,15 +108,6 @@ nrfx_err_t nrfx_comp_init(nrfx_comp_config_t const * p_config,
     }
 #endif
 
-    nrf_comp_task_trigger(NRF_COMP_TASK_STOP);
-    nrf_comp_enable();
-
-    // Clear events to be sure there are no leftovers.
-    nrf_comp_event_clear(NRF_COMP_EVENT_READY);
-    nrf_comp_event_clear(NRF_COMP_EVENT_DOWN);
-    nrf_comp_event_clear(NRF_COMP_EVENT_UP);
-    nrf_comp_event_clear(NRF_COMP_EVENT_CROSS);
-
     nrf_comp_ref_set(p_config->reference);
 
     //If external source is chosen, write to appropriate register.
@@ -142,8 +133,18 @@ nrfx_err_t nrfx_comp_init(nrfx_comp_config_t const * p_config,
 
     nrf_comp_input_select(p_config->input);
 
-    NRFX_IRQ_PRIORITY_SET(COMP_LPCOMP_IRQn, p_config->interrupt_priority);
-    NRFX_IRQ_ENABLE(COMP_LPCOMP_IRQn);
+    nrf_comp_enable();
+
+    nrf_comp_task_trigger(NRF_COMP_TASK_STOP);
+
+    // Clear events to be sure there are no leftovers.
+    nrf_comp_event_clear(NRF_COMP_EVENT_READY);
+    nrf_comp_event_clear(NRF_COMP_EVENT_DOWN);
+    nrf_comp_event_clear(NRF_COMP_EVENT_UP);
+    nrf_comp_event_clear(NRF_COMP_EVENT_CROSS);
+
+    NRFX_IRQ_PRIORITY_SET(nrfx_get_irq_number(NRF_COMP), p_config->interrupt_priority);
+    NRFX_IRQ_ENABLE(nrfx_get_irq_number(NRF_COMP));
 
     m_state = NRFX_DRV_STATE_INITIALIZED;
 
@@ -155,7 +156,7 @@ nrfx_err_t nrfx_comp_init(nrfx_comp_config_t const * p_config,
 void nrfx_comp_uninit(void)
 {
     NRFX_ASSERT(m_state != NRFX_DRV_STATE_UNINITIALIZED);
-    NRFX_IRQ_DISABLE(COMP_LPCOMP_IRQn);
+    NRFX_IRQ_DISABLE(nrfx_get_irq_number(NRF_COMP));
     nrf_comp_disable();
 #if NRFX_CHECK(NRFX_PRS_ENABLED)
     nrfx_prs_release(NRF_COMP);

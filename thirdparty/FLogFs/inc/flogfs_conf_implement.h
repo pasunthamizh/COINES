@@ -53,6 +53,9 @@ either expressed or implied, of the FLogFS Project.
 /*! Device Id of w25n02jwtbig */
 #define W25N02JW_DEVICE_ID		  0xBF22
 
+/*! Device Id of w25n02kwzeir */
+#define W25N02KW_DEVICE_ID		  0xBA22 
+
 typedef struct flash_functions
 {
 	void (*initial_bbm)(void);
@@ -101,10 +104,14 @@ static uint8_t flash_sector = 0;
 static uint8_t have_metadata;
 static uint8_t page_open;
 flash_f flash;
-
+volatile uint8_t flash_init_status=false;
 static inline flog_result_t flash_initialize(void){
 	page_open = 0;
 	uint16_t device_id = 0;
+	if(flash_init_status ==true)
+	{
+    return FLOG_SUCCESS;
+    }
 
 	if(w25_init(&device_id) == W25_NAND_INITIALIZED)
 	{
@@ -146,7 +153,7 @@ static inline flog_result_t flash_initialize(void){
 				flash.load_sector_spare = w25m02gw_load_sector_spare;
 			}
 		}
-		else if(device_id == W25N02JW_DEVICE_ID) /*APP3.0 - W25N02JW Latest Flash chip */
+		else if((device_id == W25N02JW_DEVICE_ID) || (device_id == W25N02KW_DEVICE_ID)) /*APP3.0 - W25N02JW Latest Flash chip and APP3.1 - W25N02KW Latest Flash chip*/
 		{
 			flash.initial_bbm = w25n02jw_initial_bbm;
 			flash.init_protect_reg = w25n02jw_init_protect_reg;
@@ -173,7 +180,8 @@ static inline flog_result_t flash_initialize(void){
 			return FLOG_FAILURE;
 		}
 		/* Init buffers */
-		flash.init();		
+		flash.init();
+		flash_init_status = true;
 		return FLOG_SUCCESS;
 	}
 	else

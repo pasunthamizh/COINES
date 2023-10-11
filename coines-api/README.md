@@ -64,15 +64,16 @@ Find `libcoines-pc.a` and `libcoines.so`/`libcoines.dylib` (macOS) in `coines-ap
 
 -------------------------------------------------------------------------------
 
-## APP2.0/APP3.0 MCU:
+## APP2.0/APP3.0/NICLA MCU:
 
 - Make sure you have installed the [GNU ARM Embedded Toolchain](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm)
-- Use `mingw32-make TARGET=MCU_APP20` (or) `mingw32-make TARGET=MCU_APP30`
-- The resulting library `libcoines-mcu_app20.a` (or) `libcoines-mcu_app30.a`
+- Use `mingw32-make TARGET=MCU_APP20` (or) `mingw32-make TARGET=MCU_APP30` (or) `mingw32-make TARGET=MCU_NICLA`
+- The resulting library `libcoines-mcu_app20.a` (or) `libcoines-mcu_app30.a` (or) `libcoines-mcu_nicla.a`
   and `coines.h` can be separately used in a project.
 
 #### NOTE
-- `libcoines-mcu_app20.a` and `libcoines-mcu_app30.a` have `printf` integration with USB CDC ACM.
+- `libcoines-mcu_app20.a` and `libcoines-mcu_app30.a` have `printf` integration with USB CDC ACM, 
+- libcoines-mcu_nicla.a has `printf` integration with USB Serial Bridge,
 - File handling functions (`fopen`,`fclose`,`fprintf`,etc.,) which can be used on the APP3.0 flash memory are also integrated with `libcoines-mcu_app30.a`
 - APP3.0 BLE (as Nordic UART service) can be used with `fprintf`,`fwrite`,`fscanf`,`fread`,etc., over `bt_w` and `bt_r` file just like `stdout`, `stderr`
   ```c

@@ -1,4 +1,4 @@
-:: This script updates APP3.0 board with Development Desktop firmware
+:: This script updates APP3.0 board with Coines bridge firmware
 :: Switching to bootloader mode is automatic !
 
 @echo off

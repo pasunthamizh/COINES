@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH. All rights reserved.
+ * Copyright (C) 2023 Bosch Sensortec GmbH. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -13,7 +13,7 @@
 /******************************************************************************/
 /*! Macro for external temperature sensor - I2C address */
 
-#define EXTERNAL_TEMP_I2C_ADDR     UINT8_C(0x50)
+#define EXTERNAL_TEMP_I2C_ADDR     UINT8_C(0x48)
 #define EXTERNAL_TEMP_FIFO_ADDR    UINT8_C(0x08) /* FIFO - reg address */
 #define EXTERNAL_TEMP_MEAS_ADDR    UINT8_C(0x14) /* Trigger measurement - reg address */
 #define EXTERNAL_TEMP_READ_LEN     UINT8_C(0x02) /* burst read length */

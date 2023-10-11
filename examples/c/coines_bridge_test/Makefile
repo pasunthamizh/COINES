@@ -8,7 +8,7 @@ EXAMPLE_FILE = coines_bridge_test.c
 
 # Additional C files
 # Eg: C_SRCS += support.c test.c
-C_SRCS += 
+C_SRCS += ../../../coines-api/pc/coines_bridge.c
 
 # Additional C++ files
 # Eg: CPP_SRCS += support.cpp test.cpp
@@ -21,7 +21,9 @@ ASM_SRCS +=
 
 # Additional paths to look for header files
 # Eg: INCLUDEPATHS += inc inc/test
-INCLUDEPATHS +=
+INCLUDEPATHS += ../../../coines-api/pc
+INCLUDEPATHS += ../../../coines-api/pc/serial_com
+INCLUDEPATHS += ../../../coines-api/pc/ble_com
 
 # Additional C compiler flags
 # Eg: CFLAGS += -D TEST=5 
@@ -38,5 +40,7 @@ LIBPATHS +=
 # Eg: To include libraries, libalgobsec.a and libalgobsx.a
 # LIBS += algobsec algobsx
 LIBS +=
+
+COINES_BACKEND=COINES_BRIDGE
 
 include $(COINES_INSTALL_PATH)/coines.mk

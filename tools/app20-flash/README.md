@@ -25,3 +25,11 @@ $ ./app20-flash firmware_file.fwu2
 - **Flash** command (0x02) 
 - **Send firmware data** broken down as 50 byte packets (0x08) 
 - **Update success** (0x07)
+
+## Download coines bridge frimware to FLASH 
+
+- Turn on board with switch-2 pressed.(Bootloader mode)
+
+``` bash
+$ app20-flash.exe coines_bridge_firmware.bin
+```

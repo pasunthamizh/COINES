@@ -32,7 +32,7 @@ Opening Application Board's COM port at 1200 baud of puts the board to Bootloade
 
 ### Windows implementation
 
-- Find COM port no. with USB VID (0x108C) and PID (0xAB2C/0xAB3C) using `SetupAPI`
+- Find COM port no. with USB VID (0x108C) and PID (0xAB2C/0xAB3C/0xAB38) using `SetupAPI`
 - Open and close COM port at baud rate of 1200 bps with DTR asserted
 
 ### Linux/macOS implementation

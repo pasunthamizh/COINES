@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH. All rights reserved.
+ * Copyright (C) 2023 Bosch Sensortec GmbH. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -85,8 +85,14 @@ int8_t external_temp_interface_init(struct external_temp_dev *temp_dev)
 
         coines_delay_msec(100);
 
-        rslt = coines_config_i2c_bus(COINES_I2C_BUS_1, COINES_I2C_STANDARD_MODE); /* Max30208 supports upto 400Khz */
-
+        if(true == coines_is_i2c_enabled(COINES_I2C_BUS_1))
+        {
+            rslt = EXTERNAL_TEMP_SUCCESS;
+        }else
+        {
+            rslt = coines_config_i2c_bus(COINES_I2C_BUS_1, COINES_I2C_STANDARD_MODE); /* Max30208 supports upto 400Khz */
+        }
+        
         temp_intf_conf.external_temp_bus = COINES_I2C_BUS_1;
         temp_intf_conf.external_temp_dev_addr = EXTERNAL_TEMP_I2C_ADDR;
 

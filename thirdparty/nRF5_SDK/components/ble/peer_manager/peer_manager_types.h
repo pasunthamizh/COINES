@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2015 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -91,8 +91,8 @@ typedef uint16_t pm_sec_error_code_t;
 
 /**@defgroup PM_SEC_ERRORS Peer Manager defined security errors
  *
- * @details The first 256 numbers in this range correspond to the status codes in
- *          @ref BLE_HCI_STATUS_CODES.
+ * @details The first 256 numbers, from PM_CONN_SEC_ERROR_BASE to (PM_CONN_SEC_ERROR_BASE + 0xFF),
+ *          correspond to the status codes in @ref BLE_HCI_STATUS_CODES.
  * @{ */
 #define PM_CONN_SEC_ERROR_PIN_OR_KEY_MISSING (PM_CONN_SEC_ERROR_BASE + 0x06)  /**< @brief Encryption failed because the peripheral has lost the LTK for this bond. See also @ref BLE_HCI_STATUS_CODE_PIN_OR_KEY_MISSING and Table 3.7 ("Pairing Failed Reason Codes") in the Bluetooth Core Specification 4.2, section 3.H.3.5.5 (@linkBLEcore).  */
 #define PM_CONN_SEC_ERROR_MIC_FAILURE        (PM_CONN_SEC_ERROR_BASE + 0x3D)  /**< @brief Encryption ended with disconnection because of mismatching keys or a stray packet during a procedure. See the SoftDevice GAP Message Sequence Charts on encryption (@linkBLEMSCgap), the Bluetooth Core Specification 4.2, sections 6.B.5.1.3.1 and 3.H.3.5.5 (@linkBLEcore), and @ref BLE_HCI_CONN_TERMINATED_DUE_TO_MIC_FAILURE. */
@@ -199,11 +199,25 @@ typedef struct
 typedef ble_gap_privacy_params_t pm_privacy_params_t;
 
 
+/**@brief Security status of a connection.
+ */
+typedef struct
+{
+    uint8_t connected      : 1; /**< @brief The connection is active (not disconnected). */
+    uint8_t encrypted      : 1; /**< @brief The communication on this link is encrypted. */
+    uint8_t mitm_protected : 1; /**< @brief The encrypted communication is also protected against man-in-the-middle attacks. */
+    uint8_t bonded         : 1; /**< @brief The peer is bonded. */
+    uint8_t lesc           : 1; /**< @brief The peer is paired using LESC. */
+    uint8_t reserved       : 3; /**< @brief Reserved for future use. */
+} pm_conn_sec_status_t;
+
+
 /**@brief Types of events that can come from the @ref peer_manager module.
  */
 typedef enum
 {
     PM_EVT_BONDED_PEER_CONNECTED,           /**< @brief A connected peer has been identified as one with which we have a bond. When performing bonding with a peer for the first time, this event will not be sent until a new connection is established with the peer. When we are central, this event is always sent when the Peer Manager receives the @ref BLE_GAP_EVT_CONNECTED event. When we are peripheral, this event might in rare cases arrive later. */
+    PM_EVT_CONN_CONFIG_REQ,                 /**< @brief A new connection has been established. This event is a wrapper for @ref BLE_GAP_EVT_CONNECTED event and contains its parameters. Reply with @ref pm_conn_exclude before the event handler returns to exclude BLE events targeting this connection from being handled by the Peer Manager */
     PM_EVT_CONN_SEC_START,                  /**< @brief A security procedure has started on a link, initiated either locally or remotely. The security procedure is using the last parameters provided via @ref pm_sec_params_set. This event is always followed by either a @ref PM_EVT_CONN_SEC_SUCCEEDED or a @ref PM_EVT_CONN_SEC_FAILED event. This is an informational event; no action is needed for the procedure to proceed. */
     PM_EVT_CONN_SEC_SUCCEEDED,              /**< @brief A link has been encrypted, either as a result of a call to @ref pm_conn_secure or a result of an action by the peer. The event structure contains more information about the circumstances. This event might contain a peer ID with the value @ref PM_PEER_ID_INVALID, which means that the peer (central) used an address that could not be identified, but it used an encryption key (LTK) that is present in the database. */
     PM_EVT_CONN_SEC_FAILED,                 /**< @brief A pairing or encryption procedure has failed. In some cases, this means that security is not possible on this link (temporarily or permanently). How to handle this error depends on the application. */
@@ -225,6 +239,15 @@ typedef enum
     PM_EVT_FLASH_GARBAGE_COLLECTED,         /**< @brief The flash has been garbage collected (By FDS), possibly freeing up space. */
     PM_EVT_FLASH_GARBAGE_COLLECTION_FAILED, /**< @brief Garbage collection was attempted but failed. */
 } pm_evt_id_t;
+
+
+/**@brief Parameters specific to the @ref PM_EVT_CONN_CONFIG_REQ event.
+ */
+typedef struct
+{
+    ble_gap_evt_connected_t const * p_peer_params; /**< @brief Connected Event parameters. */
+    void                    const * p_context;     /**< @brief This pointer must be provided in the reply if the reply function takes a p_context argument. */
+} pm_conn_config_req_evt_t;
 
 
 /**@brief Events parameters specific to the @ref PM_EVT_CONN_SEC_START event.
@@ -291,7 +314,6 @@ typedef struct
     pm_peer_data_op_t action;    /**< @brief The action that failed. */
     pm_store_token_t  token;     /**< @brief Token that identifies the operation. For @ref PM_PEER_DATA_OP_DELETE actions, this token can be disregarded. For @ref PM_PEER_DATA_OP_UPDATE actions, compare this token with the token that is received from a call to a @ref PM_PEER_DATA_FUNCTIONS function. */
     ret_code_t        error;     /**< @brief An error code that describes the failure. */
-    bool              fds_error; /**< @brief If true, The error should be interpreted as an FDS error code. See @ref fds for a list of errors. */
 } pm_peer_data_update_failed_t;
 
 
@@ -300,17 +322,7 @@ typedef struct
 typedef struct
 {
     ret_code_t error;     /**< @brief The error that occurred. */
-    bool       fds_error; /**< @brief If true, The error should be interpreted as an FDS error code. See @ref fds for a list of errors. */
 } pm_failure_evt_t;
-
-
-/**@brief Events parameters specific to the @ref PM_EVT_SLAVE_SECURITY_REQ event.
- */
-typedef struct
-{
-    bool bond; /**< @brief Whether the peripheral requested bonding. */
-    bool mitm; /**< @brief Whether the peripheral requested man-in-the-middle protection. */
-} pm_evt_slave_security_req_t;
 
 
 /**@brief An event from the @ref peer_manager module.
@@ -324,6 +336,7 @@ typedef struct
     pm_peer_id_t peer_id;     /**< @brief The bonded peer that this event pertains to, or @ref PM_PEER_ID_INVALID. */
     union
     {
+        pm_conn_config_req_evt_t            conn_config_req;            /**< @brief Parameters specific to the @ref PM_EVT_CONN_CONFIG_REQ event. */
         pm_conn_sec_start_evt_t             conn_sec_start;             /**< @brief Parameters specific to the @ref PM_EVT_CONN_SEC_START event. */
         pm_conn_secured_evt_t               conn_sec_succeeded;         /**< @brief Parameters specific to the @ref PM_EVT_CONN_SEC_SUCCEEDED event. */
         pm_conn_secure_failed_evt_t         conn_sec_failed;            /**< @brief Parameters specific to the @ref PM_EVT_CONN_SEC_FAILED event. */
@@ -333,7 +346,7 @@ typedef struct
         pm_failure_evt_t                    peer_delete_failed;         /**< @brief Parameters specific to the @ref PM_EVT_PEER_DELETE_FAILED event. */
         pm_failure_evt_t                    peers_delete_failed_evt;    /**< @brief Parameters specific to the @ref PM_EVT_PEERS_DELETE_FAILED event. */
         pm_failure_evt_t                    error_unexpected;           /**< @brief Parameters specific to the @ref PM_EVT_ERROR_UNEXPECTED event. */
-        pm_evt_slave_security_req_t         slave_security_req;         /**< @brief Parameters specific to the @ref PM_EVT_SLAVE_SECURITY_REQ event. */
+        ble_gap_evt_sec_request_t           slave_security_req;         /**< @brief Parameters specific to the @ref PM_EVT_SLAVE_SECURITY_REQ event. */
         pm_failure_evt_t                    garbage_collection_failed;  /**< @brief Parameters specific to the @ref PM_EVT_FLASH_GARBAGE_COLLECTION_FAILED event. */
     } params;
 } pm_evt_t;

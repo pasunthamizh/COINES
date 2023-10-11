@@ -13,18 +13,22 @@ CFLAGS += -DSOFTDEVICE_PRESENT
 nRF5_SDK_DIR = ../../thirdparty/nRF5_SDK
 THIRD_PARTY_DIR=../../thirdparty
 LIB_DIR=../../libraries
+COMMON=../common
 ASM_SRCS_COINES = $(nRF5_SDK_DIR)/modules/nrfx/mdk/gcc_startup_nrf52840.S \
 
+
 C_SRCS_COINES += \
-mcu_app30_support.c \
-mcu_app30_interface.c \
-mcu_app30.c \
+$(COMMON)/mcu_app3x_support.c \
+$(COMMON)/mcu_app3x_interface.c \
+$(COMMON)/mcu_app3x.c \
+$(COMMON)/mcu_app3x_stream.c \
 $(THIRD_PARTY_DIR)/ds28e05/ds28e05.c \
 $(LIB_DIR)/nrf52_eeprom/app30_eeprom.c \
 $(LIB_DIR)/w25_common/w25_common.c \
 $(LIB_DIR)/w25m02gw/w25m02gw.c \
 $(LIB_DIR)/w25m01gw/w25n01gw.c \
 $(LIB_DIR)/w25n02jw/w25n02jw.c \
+$(LIB_DIR)/mqueue/mqueue.c \
 $(THIRD_PARTY_DIR)/FLogFs/src/flogfs.c \
 $(nRF5_SDK_DIR)/modules/nrfx/mdk/system_nrf52840.c \
 $(nRF5_SDK_DIR)/integration/nrfx/legacy/nrf_drv_clock.c \
@@ -33,15 +37,16 @@ $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_rtc.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_clock.c  \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_gpiote.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_power.c  \
-$(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_power_clock.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_spim.c  \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_systick.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_timer.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_twim.c  \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_i2s.c \
+$(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_ppi.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/prs/nrfx_prs.c \
 $(nRF5_SDK_DIR)/modules/nrfx/drivers/src/prs/nrfx_saadc.c \
-$(nRF5_SDK_DIR)/components/drivers_nrf/usbd/nrf_drv_usbd.c \
+$(nRF5_SDK_DIR)/modules/nrfx/drivers/src/nrfx_usbd.c  \
+$(nRF5_SDK_DIR)/modules/nrfx/soc/nrfx_atomic.c\
 $(nRF5_SDK_DIR)/components/libraries/usbd/app_usbd.c \
 $(nRF5_SDK_DIR)/components/libraries/usbd/class/cdc/acm/app_usbd_cdc_acm.c \
 $(nRF5_SDK_DIR)/components/libraries/usbd/app_usbd_core.c \
@@ -75,16 +80,20 @@ $(nRF5_SDK_DIR)/components/ble/nrf_ble_qwr/nrf_ble_qwr.c \
 $(nRF5_SDK_DIR)/components/libraries/timer/app_timer.c \
 $(nRF5_SDK_DIR)/components/ble/ble_advertising/ble_advertising.c \
 $(nRF5_SDK_DIR)/components/libraries/ringbuf/nrf_ringbuf.c \
+$(nRF5_SDK_DIR)/components/libraries/crc16/crc16.c \
+
 
 INCLUDEPATHS_COINES += \
 .. \
 . \
 conf \
+$(COMMON) \
 $(THIRD_PARTY_DIR)/ds28e05 \
 $(LIB_DIR)/nrf52_eeprom \
 $(LIB_DIR)/w25_common \
 $(LIB_DIR)/w25m02gw \
 $(LIB_DIR)/w25n02jw \
+$(LIB_DIR)/mqueue \
 $(THIRD_PARTY_DIR)/FLogFs/inc \
 $(nRF5_SDK_DIR)/modules/nrfx \
 $(nRF5_SDK_DIR)/modules/nrfx/mdk \
@@ -100,7 +109,6 @@ $(nRF5_SDK_DIR)/components/toolchain/cmsis/include \
 $(nRF5_SDK_DIR)/components/libraries/timer \
 $(nRF5_SDK_DIR)/components/libraries/util \
 $(nRF5_SDK_DIR)/components/libraries/usbd/class/cdc \
-$(nRF5_SDK_DIR)/components/drivers_nrf/usbd \
 $(nRF5_SDK_DIR)/components/libraries/ringbuf \
 $(nRF5_SDK_DIR)/components/libraries/hardfault/nrf52 \
 $(nRF5_SDK_DIR)/components/libraries/hardfault \

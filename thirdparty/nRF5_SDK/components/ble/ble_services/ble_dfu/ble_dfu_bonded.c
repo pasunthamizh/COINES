@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 - 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2017 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -198,7 +198,7 @@ uint32_t ble_dfu_buttonless_backend_init(ble_dfu_buttonless_t * p_dfu)
     mp_dfu = p_dfu;
 
     // Initialize the Peer manager handler.
-    return pm_register(&pm_evt_handler);
+    return pm_register(pm_evt_handler);
 }
 
 

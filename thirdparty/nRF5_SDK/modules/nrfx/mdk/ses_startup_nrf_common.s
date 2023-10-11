@@ -38,6 +38,11 @@
  *        USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH         *
  *        DAMAGE.                                                                  *
  *                                                                                 *
+ ***********************************************************************************
+ *                                                                                 *
+ *    This file has been modified by Nordic Semiconductor:                         *
+ *        To separate out device-specific data                                     *
+ *                                                                                 *
  ***********************************************************************************/
 
 /************************************************************************************
@@ -87,6 +92,7 @@
 #endif
   .extern _vectors
   .extern nRFInitialize
+  .global afterInitialize
 
   .section .init, "ax"
   .thumb_func
@@ -95,14 +101,16 @@
   .equ FPU_CPACR_REG, 0xE000ED88
 
 #ifndef STACK_INIT_VAL
-#define STACK_INIT_VAL __RAM_segment_end__
+#define STACK_INIT_VAL __RAM1_segment_end__
 #endif
 
 Reset_Handler:
 
   /* Perform prestart tasks. */
-  ldr r0, =nRFInitialize
-  blx r0
+  b nRFInitialize
+
+.thumb_func
+afterInitialize:
   
 #ifndef NO_STACK_INIT
   /* Initialise main stack */

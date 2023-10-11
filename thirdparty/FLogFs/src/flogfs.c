@@ -481,7 +481,6 @@ flog_result_t flog_prealloc_initialize() {
     return FLOG_SUCCESS;
 }
 
-
 flog_result_t flog_prealloc_prime() {
     flog_block_statistics_sector_with_key_t statistics_sector;
     flog_inode_init_sector_spare_t inode_spare;
@@ -1151,7 +1150,17 @@ flog_result_t flogfs_read_seek(flog_read_file_t *file, uint32_t position) {
         fr = seek.status;
         file->block = seek.block;
         file->sector = seek.sector;
-        file->offset = seek.offset;
+        switch (seek.sector) {
+        case FLOG_TAIL_SECTOR:
+            file->offset = seek.offset+sizeof(flog_file_tail_sector_header_t);
+            break;
+        case FLOG_INIT_SECTOR:
+            file->offset = seek.offset+sizeof(flog_file_init_sector_header_t);
+            break;
+        default:
+            file->offset = seek.offset;
+            break;
+        }
         file->sector_remaining_bytes = seek.bytes_remaining;
     }
 
@@ -1671,8 +1680,8 @@ uint32_t flogfs_available_space(){
 }
 
 /**********************************start************************************************/
-/* Note: This done as part of bug fix, deletion of block is separated. */
-flog_result_t flogfs_invlaidate(char const *filename) {
+/* Note: This is done to ensure that time taken by delete file is reduced, hence deletion of block is separated*/
+flog_result_t flogfs_invalidate(char const *filename) {
     flog_file_find_result_t find_result;
     flog_inode_iterator_t inode_iter;
     flog_block_idx_t block, next_block;

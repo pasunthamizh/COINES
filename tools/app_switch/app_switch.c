@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -31,6 +31,7 @@
 #define USB_DFU_BL_ADDR (0) // It is actually not at 0x0 !
 #define APP20_EXAMPLE_ADDR (0x00440000)
 #define APP30_MTP_FW_ADDR (0x28000)
+#define APP31_MTP_FW_ADDR (0x28000)
 
 #define APP_SWITCH_FEATURE (0x30)
 
@@ -42,23 +43,34 @@
 #define BST_APP30_CDC_USB_PID  (0xAB3C)
 #define BST_APP30_DFU_USB_PID  (0xAB3D)
 
+#define BST_APP31_CDC_USB_PID  (0xAB38)
+#define BST_APP31_DFU_USB_PID  (0xAB39)
+
 #define APP20_BOARD (3)
 #define APP30_BOARD  (5)
+#define TIMEOUT (10000)
+
+char *port_name = NULL;
 
 static void jump_to(uint32_t addr);
-static int usb_connected(uint16_t vid, uint16_t pid);
+static int usb_connected(char *port_name,uint16_t vid, uint16_t pid);
 static void usb_cdc_acm_open_close(uint32_t baud_rate,uint16_t vid, uint16_t pid);
+#ifdef PLATFORM_WINDOWS
+static void create_serial_handle(uint32_t baud_rate,char *COM_PortName);
+#endif
 static void set_app_address(uint32_t *app_address, char* argv[]);
+static bool is_board_switched_dfu_mode(void);
 
 int main(int argc, char *argv[])
 {
     int rslt = 0;
+    uint32_t start_time;
 
     struct coines_board_info board_info;
 
     uint32_t app_address = -1;
 
-    if (argc > 2 || argc == 1)
+    if (argc > 3 || argc == 1)
     {
         printf("\n Invalid/Insufficient arguments !!");
         printf("\n\n %s <application name / start address>", argv[0]);
@@ -70,15 +82,16 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    
     app_address = strtol(argv[1], NULL, 0);
-
+    port_name = argv[2];
     set_app_address(&app_address, argv);
 
     rslt = coines_open_comm_intf(COINES_COMM_INTF_USB, NULL);
     if (rslt < 0)
     {
-        if (usb_connected(ROBERT_BOSCH_USB_VID, BST_APP20_CDC_USB_PID)
-         || usb_connected(ROBERT_BOSCH_USB_VID, BST_APP30_CDC_USB_PID))
+        if (usb_connected(port_name, ROBERT_BOSCH_USB_VID, BST_APP20_CDC_USB_PID)
+         || usb_connected(port_name, ROBERT_BOSCH_USB_VID, BST_APP30_CDC_USB_PID))
         {
             if (app_address == USB_DFU_BL_ADDR)
             {
@@ -96,9 +109,28 @@ int main(int argc, char *argv[])
                 usb_cdc_acm_open_close(2400,ROBERT_BOSCH_USB_VID, BST_APP30_CDC_USB_PID);
                 exit(EXIT_SUCCESS);
             }
+            else 
+            {
+                printf("\n Correct your Given APP address ! \n");
+                exit(EXIT_SUCCESS);
+            }
         }
-        else if (usb_connected(ROBERT_BOSCH_USB_VID, BST_APP20_DFU_USB_PID)
-        	  || usb_connected(ROBERT_BOSCH_USB_VID, BST_APP30_DFU_USB_PID))
+        else if(usb_connected(port_name, ROBERT_BOSCH_USB_VID, BST_APP31_CDC_USB_PID))
+        {
+            if (app_address == USB_DFU_BL_ADDR)
+            {
+                usb_cdc_acm_open_close(1200,ROBERT_BOSCH_USB_VID, BST_APP31_CDC_USB_PID);
+                goto wait;
+            }
+            else if (app_address == APP31_MTP_FW_ADDR)
+            {
+                usb_cdc_acm_open_close(2400,ROBERT_BOSCH_USB_VID, BST_APP31_CDC_USB_PID);
+                exit(EXIT_SUCCESS);
+            }            
+        }
+        else if (usb_connected(NULL, ROBERT_BOSCH_USB_VID, BST_APP20_DFU_USB_PID)
+        	  || usb_connected(NULL, ROBERT_BOSCH_USB_VID, BST_APP30_DFU_USB_PID)
+        	  || usb_connected(NULL, ROBERT_BOSCH_USB_VID, BST_APP31_DFU_USB_PID))
         {
             exit(EXIT_SUCCESS);
         }
@@ -122,13 +154,30 @@ int main(int argc, char *argv[])
 
 wait:
     if (app_address == USB_DFU_BL_ADDR)
+    {
         /*Wait till APP2.0/APP3.0 Board switches to DFU mode*/
-        while (!( usb_connected(ROBERT_BOSCH_USB_VID, BST_APP20_DFU_USB_PID)
-               || usb_connected(ROBERT_BOSCH_USB_VID, BST_APP30_DFU_USB_PID) ));
+        start_time = coines_get_millis();
+        while (coines_get_millis() <= (start_time + TIMEOUT))
+        {
+            if(is_board_switched_dfu_mode())
+                exit(EXIT_SUCCESS);
+        } 
+    }
+    exit(EXIT_FAILURE);
 
     //coines_close_comm_intf(COINES_COMM_INTF_USB, NULL); /*Causing more delay in Linux and hence commented*/
+   
+}
 
-    exit(EXIT_SUCCESS);
+static bool is_board_switched_dfu_mode(void)
+{
+    if ( usb_connected(NULL, ROBERT_BOSCH_USB_VID, BST_APP20_DFU_USB_PID)
+               || usb_connected(NULL, ROBERT_BOSCH_USB_VID, BST_APP30_DFU_USB_PID) 
+               || usb_connected(NULL, ROBERT_BOSCH_USB_VID, BST_APP31_DFU_USB_PID))
+    {
+        return true;
+    }
+    return false;
 }
 
 static void jump_to(uint32_t addr)
@@ -145,19 +194,23 @@ static void set_app_address(uint32_t *app_address, char* argv[])
         if (strcmp(argv[1], "dd_fw") == 0)
             *app_address = APP20_DD_FW_ADDR;
 
-        if (strcmp(argv[1], "usb_dfu_bl") == 0)
+        else if ((strcmp(argv[1], "usb_dfu_bl") == 0) || (strcmp(argv[1], "0") == 0))
             *app_address = USB_DFU_BL_ADDR;
 
-        if (strcmp(argv[1], "example") == 0)
+        else if (strcmp(argv[1], "example") == 0)
             *app_address = APP20_EXAMPLE_ADDR;
 
-        if (strcmp(argv[1], "usb_mtp") == 0)
+        else if (strcmp(argv[1], "usb_mtp") == 0)
             *app_address = APP30_MTP_FW_ADDR;
+        
+        else
+            *app_address = -1;
+        
     }
 }
 
 #ifdef PLATFORM_WINDOWS
-static int usb_connected(uint16_t vid,uint16_t pid)
+static int usb_connected(char *port_name, uint16_t vid,uint16_t pid)
 {
 
     char usb_id[20]={};
@@ -165,7 +218,7 @@ static int usb_connected(uint16_t vid,uint16_t pid)
     HDEVINFO hDevInfo;
     SP_DEVINFO_DATA DeviceInfoData;
     char HardwareID[1024] = {};
-
+    
     sprintf(usb_id,"VID_%04X&PID_%04X",vid,pid);
 
     // List all connected USB devices
@@ -182,10 +235,61 @@ static int usb_connected(uint16_t vid,uint16_t pid)
         fflush(stdout);
         if (strstr(HardwareID,usb_id))
         {
-            coines_delay_msec(2000);
-            return 1;
+            if(port_name != NULL)
+            {
+                char COM_PortName[20];
+                DWORD dwSize = sizeof(COM_PortName);
+                DWORD dwType = 0;
+                HKEY hDeviceRegistryKey = SetupDiOpenDevRegKey(hDevInfo, &DeviceInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+
+                if ((RegQueryValueEx(hDeviceRegistryKey, "PortName", NULL, &dwType,(LPBYTE)COM_PortName, &dwSize) == ERROR_SUCCESS) && (dwType == REG_SZ))
+                {
+                    if (strcmp(port_name,COM_PortName) == 0)
+                    {
+                        coines_delay_msec(2000);
+                        return 1;
+                    }
+                }
+            }
+            else
+            {
+                coines_delay_msec(2000);
+                return 1;
+            }
+            
+
         }
     }
+    return 0;
+}
+
+static void create_serial_handle(uint32_t baud_rate,char *COM_PortName)
+{
+    char str[20];
+    DCB dcb;
+    HANDLE serial_handle;
+    
+    snprintf(str,sizeof(str)-1,"\\\\.\\%s",COM_PortName);
+    serial_handle = CreateFile(str,GENERIC_READ | GENERIC_WRITE,0, NULL,OPEN_EXISTING,0,NULL);
+
+    if (serial_handle == INVALID_HANDLE_VALUE)
+    {
+        printf("\nSerial Port in use !\n");
+        exit(EXIT_FAILURE);
+    }
+
+    GetCommState(serial_handle, &dcb);
+
+    dcb.BaudRate = baud_rate;
+    dcb.ByteSize = 8;
+    dcb.Parity = NOPARITY;
+    dcb.StopBits = ONESTOPBIT;
+    dcb.fDtrControl = DTR_CONTROL_ENABLE;
+
+    SetCommState(serial_handle, &dcb);
+    if(serial_handle)   CloseHandle(serial_handle);
+    coines_delay_msec(2000);
+    
 }
 
 static void usb_cdc_acm_open_close(uint32_t baud_rate,uint16_t vid,uint16_t pid)
@@ -219,45 +323,29 @@ static void usb_cdc_acm_open_close(uint32_t baud_rate,uint16_t vid,uint16_t pid)
 
             if ((RegQueryValueEx(hDeviceRegistryKey, "PortName", NULL, &dwType,(LPBYTE)COM_PortName, &dwSize) == ERROR_SUCCESS) && (dwType == REG_SZ))
             {
-
-                char str[20];
-                 DCB dcb;
-                 HANDLE serial_handle;
-
-                 snprintf(str,sizeof(str)-1,"\\\\.\\%s",COM_PortName);
-                 serial_handle = CreateFile(str,GENERIC_READ | GENERIC_WRITE,0, NULL,OPEN_EXISTING,0,NULL);
-
-                if (serial_handle == INVALID_HANDLE_VALUE)
+                if (port_name)
                 {
-                    printf("\nSerial Port in use !\n");
-                    exit(EXIT_FAILURE);
+                    if (strcmp(port_name,COM_PortName) == 0)
+                    {
+                        create_serial_handle(baud_rate, COM_PortName);
+                        return;
+                    }
                 }
-
-                 GetCommState(serial_handle, &dcb);
-
-                 dcb.BaudRate = baud_rate;
-                 dcb.ByteSize = 8;
-                 dcb.Parity = NOPARITY;
-                 dcb.StopBits = ONESTOPBIT;
-                 dcb.fDtrControl = DTR_CONTROL_ENABLE;
-
-                 SetCommState(serial_handle, &dcb);
-                 if(serial_handle)   CloseHandle(serial_handle);
-                 coines_delay_msec(2000);
-
-                 return;
-
-
+                else
+                {
+                    create_serial_handle(baud_rate, COM_PortName);
+                    return;
+                }   
             }
         }
     }
 }
-
 #endif
 
 #ifdef PLATFORM_LINUX
-static int usb_connected(uint16_t vid,uint16_t pid)
+static int usb_connected(char *port_name, uint16_t vid,uint16_t pid)
 {
+    (void)port_name;
     libusb_init(NULL);
     libusb_device **list;
     struct libusb_device_descriptor desc;

@@ -4,7 +4,7 @@ EXAMPLE_FILE ?= accel_gyro_ois.c
 
 API_LOCATION ?= $(COINES_INSTALL_PATH)/examples/bmi270
 
-COMMON_LOCATION ?= $(API_LOCATION)/examples/bmi270
+COMMON_LOCATION ?= $(API_LOCATION)/bmi270_examples
 
 C_SRCS += \
 $(API_LOCATION)/bmi2.c \

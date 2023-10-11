@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018, Nordic Semiconductor ASA
+ * Copyright (c) 2018 - 2021, Nordic Semiconductor ASA
  *
  * All rights reserved.
  *
@@ -39,6 +39,7 @@
  */
 #include "peer_manager_handler.h"
 #include <stdint.h>
+#include <string.h>
 #include "sdk_errors.h"
 #include "app_error.h"
 #include "peer_manager.h"
@@ -85,6 +86,7 @@ static const char * m_sec_procedure_str[] =
 static const char * m_event_str[] =
 {
     PM_EVT_STR(PM_EVT_BONDED_PEER_CONNECTED),
+    PM_EVT_STR(PM_EVT_CONN_CONFIG_REQ),
     PM_EVT_STR(PM_EVT_CONN_SEC_START),
     PM_EVT_STR(PM_EVT_CONN_SEC_SUCCEEDED),
     PM_EVT_STR(PM_EVT_CONN_SEC_FAILED),
@@ -126,6 +128,41 @@ static const char * m_data_action_str[] =
     "Update",
     "Delete"
 };
+
+#define PM_SEC_ERR_STR(_name) {.error = _name, .error_str = #_name}
+
+typedef struct
+{
+    pm_sec_error_code_t error;
+    const char * error_str;
+} sec_err_str_t;
+
+static const sec_err_str_t m_pm_sec_error_str[] =
+{
+    PM_SEC_ERR_STR(PM_CONN_SEC_ERROR_PIN_OR_KEY_MISSING),
+    PM_SEC_ERR_STR(PM_CONN_SEC_ERROR_MIC_FAILURE),
+    PM_SEC_ERR_STR(PM_CONN_SEC_ERROR_DISCONNECT),
+    PM_SEC_ERR_STR(PM_CONN_SEC_ERROR_SMP_TIMEOUT),
+};
+
+static const char * sec_err_string_get(pm_sec_error_code_t error)
+{
+    static char errstr[30];
+
+    for (uint32_t i = 0; i < (sizeof(m_pm_sec_error_str)/sizeof(sec_err_str_t)); i++)
+    {
+        if (m_pm_sec_error_str[i].error == error)
+        {
+            return m_pm_sec_error_str[i].error_str;
+        }
+    }
+
+    int len = snprintf(errstr, sizeof(errstr), "%s 0x%hx", (error < PM_CONN_SEC_ERROR_BASE)
+                                                            ? "BLE_GAP_SEC_STATUS"
+                                                            :"PM_CONN_SEC_ERROR", error);
+    UNUSED_VARIABLE(len);
+    return errstr;
+}
 
 
 static void _conn_secure(uint16_t conn_handle, bool force)
@@ -280,7 +317,7 @@ void pm_handler_flash_clean(pm_evt_t const * p_pm_evt)
 {
     ret_code_t  err_code;
     static bool flash_cleaning       = false;     // Indicates whether garbage collection is currently being run.
-    static bool flash_write_after_gc = false;     // Indicates whether a successful write happened after the last garbage
+    static bool flash_write_after_gc = true;      // Indicates whether a successful write happened after the last garbage
                                                   // collection. If this is false when flash is full, it means just a
                                                   // garbage collection won't work, so some data should be deleted.
     #define RANK_QUEUE_SIZE 8                     // Size of rank_queue.
@@ -340,6 +377,14 @@ void pm_handler_flash_clean(pm_evt_t const * p_pm_evt)
             {
                 err_code = NRF_SUCCESS;
                 NRF_LOG_INFO("Attempting to clean flash.");
+                if (!flash_write_after_gc)
+                {
+                    // Check whether another user of FDS has deleted a record that can be GCed.
+                    fds_stat_t fds_stats;
+                    err_code = fds_stat(&fds_stats);
+                    APP_ERROR_CHECK(err_code);
+                    flash_write_after_gc = (fds_stats.dirty_records > 0);
+                }
                 if (!flash_write_after_gc)
                 {
                     pm_peer_id_t peer_id_to_delete;
@@ -425,9 +470,8 @@ void pm_handler_flash_clean(pm_evt_t const * p_pm_evt)
         case PM_EVT_FLASH_GARBAGE_COLLECTION_FAILED:
             flash_cleaning = false;
 
-            if (p_pm_evt->params.garbage_collection_failed.fds_error
-              &&   (p_pm_evt->params.garbage_collection_failed.error == FDS_ERR_BUSY
-                 || p_pm_evt->params.garbage_collection_failed.error == FDS_ERR_OPERATION_TIMEOUT))
+            if (p_pm_evt->params.garbage_collection_failed.error == FDS_ERR_BUSY
+             || p_pm_evt->params.garbage_collection_failed.error == FDS_ERR_OPERATION_TIMEOUT)
             {
                 // Retry immediately if error is transient.
                 pm_handler_flash_clean_on_return();
@@ -453,6 +497,10 @@ void pm_handler_pm_evt_log(pm_evt_t const * p_pm_evt)
                           p_pm_evt->peer_id);
             break;
 
+        case PM_EVT_CONN_CONFIG_REQ:
+            NRF_LOG_DEBUG("Connection configuration request");
+            break;
+
         case PM_EVT_CONN_SEC_START:
             NRF_LOG_DEBUG("Connection security procedure started: role: %s, conn_handle: %d, procedure: %s",
                           m_roles_str[ble_conn_state_role(p_pm_evt->conn_handle)],
@@ -473,6 +521,8 @@ void pm_handler_pm_evt_log(pm_evt_t const * p_pm_evt)
                          p_pm_evt->conn_handle,
                          m_sec_procedure_str[p_pm_evt->params.conn_sec_start.procedure],
                          p_pm_evt->params.conn_sec_failed.error);
+            NRF_LOG_DEBUG("Error (decoded): %s",
+                          sec_err_string_get(p_pm_evt->params.conn_sec_failed.error));
             break;
 
         case PM_EVT_CONN_SEC_CONFIG_REQ:
@@ -493,10 +543,11 @@ void pm_handler_pm_evt_log(pm_evt_t const * p_pm_evt)
             break;
 
         case PM_EVT_PEER_DATA_UPDATE_SUCCEEDED:
-            NRF_LOG_DEBUG("Peer data updated in flash: peer_id: %d, data_id: %s, action: %s",
+            NRF_LOG_INFO("Peer data updated in flash: peer_id: %d, data_id: %s, action: %s%s",
                           p_pm_evt->peer_id,
                           m_data_id_str[p_pm_evt->params.peer_data_update_succeeded.data_id],
-                          m_data_action_str[p_pm_evt->params.peer_data_update_succeeded.action]);
+                          m_data_action_str[p_pm_evt->params.peer_data_update_succeeded.action],
+                          p_pm_evt->params.peer_data_update_succeeded.flash_changed ? "" : ", no change");
             break;
 
         case PM_EVT_PEER_DATA_UPDATE_FAILED:
@@ -579,6 +630,22 @@ void pm_handler_disconnect_on_sec_failure(pm_evt_t const * p_pm_evt)
                                          BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
         if ((err_code != NRF_ERROR_INVALID_STATE) && (err_code != BLE_ERROR_INVALID_CONN_HANDLE))
         {
+            APP_ERROR_CHECK(err_code);
+        }
+    }
+}
+
+
+void pm_handler_disconnect_on_insufficient_sec(pm_evt_t const * p_pm_evt,
+                                               pm_conn_sec_status_t * p_min_conn_sec)
+{
+    if (p_pm_evt->evt_id == PM_EVT_CONN_SEC_SUCCEEDED)
+    {
+        if (!pm_sec_is_sufficient(p_pm_evt->conn_handle, p_min_conn_sec))
+        {
+            NRF_LOG_WARNING("Connection security is insufficient, disconnecting.");
+            ret_code_t err_code = sd_ble_gap_disconnect(p_pm_evt->conn_handle,
+                                                    BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
             APP_ERROR_CHECK(err_code);
         }
     }

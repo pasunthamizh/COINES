@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2021 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -12,7 +12,7 @@
 #include <stddef.h>
 
 #ifdef __cplusplus
-extern 'C' {
+extern "C" {
 #endif
 
 #ifndef COINES_PACKET_SIZE
@@ -22,6 +22,9 @@ extern 'C' {
 #ifndef COINES_BUFFER_SIZE
 #define COINES_BUFFER_SIZE                   2060
 #endif
+
+/*! Maximum header length for legacy and new protocol */
+#define COINES_MAX_HEADER_LEN                UINT8_C(12)
 
 #define COINES_CMD_HEADER                    UINT8_C(0xA5)
 #define COINES_RESP_OK_HEADER                UINT8_C(0x5A)
@@ -64,6 +67,8 @@ enum coines_cmds {
     COINES_CMD_ID_STREAM_START_STOP,
     COINES_READ_SENSOR_DATA,
     COINES_CMD_ID_SOFT_RESET,
+    COINES_CMD_ID_SHUTTLE_EEPROM_WRITE,
+    COINES_CMD_ID_SHUTTLE_EEPROM_READ,
     COINES_N_CMDS
 };
 
@@ -71,27 +76,6 @@ typedef enum sensor_interface {
     COINES_I2C,
     COINES_SPI
 } sensor_interface_t;
-
-typedef enum
-{
-    COINES_STREAM_NO_TIMESTAMP = 0, /*< no timestamp */
-    COINES_STREAM_USE_TIMESTAMP = 1 /*< Timestamp is present */
-} coines_stream_timestamp_t;
-
-typedef enum
-{
-    COINES_STREAM_MODE_INTERRUPT, /*< interrupt*/
-    COINES_STREAM_MODE_POLLING, /*< polling*/
-    COINES_STREAM_MODE_FIFO_POLLING /*<fifo polling*/
-} coines_stream_mode_t;
-
-typedef struct
-{
-    uint32_t gst_period_us; /*< Global Sampling Timer period (in polling mode, all sensor sampling periods are multiple
-                             * of this period)*/
-    coines_stream_timestamp_t ts_mode; /*< ts mode */
-    coines_stream_mode_t stream_mode; /*< stream mode */
-} coines_stream_settings_t;
 
 typedef int8_t (*coines_cmd_callback)(uint8_t cmd, uint8_t *payload, uint16_t payload_length, uint8_t *resp,
                                       uint16_t *resp_length);

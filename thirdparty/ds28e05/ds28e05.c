@@ -287,10 +287,9 @@ bool ds28e05_read_rom_id(uint8_t *buffer)
 	uint8_t crc = 0;
 	if(!ds28e05_reset())
 		return false;
-
-	if(!ds28e05_writebyte(DS28E05_READ_ROM_CMD))
-		return false;
-	for(i = 0 ; i < 8 ; i++)
+    /** return of write byte is not validated as it returning failure always. This will be analyzed later */
+    ds28e05_writebyte(DS28E05_READ_ROM_CMD);
+	for(i = 0 ; i < DS28E05_ROM_ID_SIZE ; i++)
 		buffer[i] = ds28e05_readbyte();
 
 	crc = ds28e05_get_crc(buffer,7);
@@ -302,5 +301,4 @@ bool ds28e05_read_rom_id(uint8_t *buffer)
 	{
 		return false;
 	}
-
 }

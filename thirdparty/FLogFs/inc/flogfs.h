@@ -289,7 +289,7 @@ void flogfs_stop_ls(flogfs_ls_iterator_t *iter);
  Note: This done as part of bug fix
  @param filename The name of the file
  */
-flog_result_t flogfs_invlaidate(char const *filename);
+flog_result_t flogfs_invalidate(char const *filename);
 
 /*!
  @brief Delete the invalidated file blocks

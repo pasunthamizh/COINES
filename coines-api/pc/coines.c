@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -95,10 +95,18 @@ static int16_t coines_write(enum coines_sensor_intf intf,
                             uint16_t count);
 
 /*! coines 16bit data read */
-static int16_t coines_read_16bit(enum coines_spi_bus bus,uint8_t cs_pin, uint16_t reg_addr, void *reg_data, uint16_t count);
+static int16_t coines_read_16bit(enum coines_spi_bus bus,
+                                 uint8_t cs_pin,
+                                 uint16_t reg_addr,
+                                 void *reg_data,
+                                 uint16_t count);
 
 /*! coines 16bit data write */
-static int16_t coines_write_16bit(enum coines_spi_bus bus,uint8_t cs_pin, uint16_t reg_addr, void *reg_data, uint16_t count);
+static int16_t coines_write_16bit(enum coines_spi_bus bus,
+                                  uint8_t cs_pin,
+                                  uint16_t reg_addr,
+                                  void *reg_data,
+                                  uint16_t count);
 
 /*! coines config streaming mode */
 static int16_t config_streaming_mode(enum coines_streaming_mode stream_mode);
@@ -124,7 +132,7 @@ static int16_t coines_third_party_write(enum coines_sensor_intf intf,
 /*!
  * @brief This API is used to initialize the communication according to interface type.
  */
-int16_t coines_open_comm_intf(enum coines_comm_intf intf_type,void *arg)
+int16_t coines_open_comm_intf(enum coines_comm_intf intf_type, void *arg)
 {
     (void)arg;
     int16_t rslt;
@@ -149,7 +157,7 @@ int16_t coines_open_comm_intf(enum coines_comm_intf intf_type,void *arg)
 /*!
  * @brief This API is used to close the active communication(USB,COM or BLE).
  */
-int16_t coines_close_comm_intf(enum coines_comm_intf intf_type,void *arg)
+int16_t coines_close_comm_intf(enum coines_comm_intf intf_type, void *arg)
 {
     (void)arg;
     comm_intf_close(intf_type);
@@ -253,16 +261,15 @@ int16_t coines_get_pin_config(enum coines_multi_io_pin pin_number,
                 {
                     /* Direction available at eight position */
                     *pin_direction =
-                                     (enum coines_pin_direction)((coines_rsp_buf.buffer[8] << 8) | coines_rsp_buf.buffer[9]);
+                        (enum coines_pin_direction)((coines_rsp_buf.buffer[8] << 8) | coines_rsp_buf.buffer[9]);
                     *pin_direction =
-                                     (*pin_direction == pin_number_value) ? COINES_PIN_DIRECTION_OUT : COINES_PIN_DIRECTION_IN;
+                        (*pin_direction == pin_number_value) ? COINES_PIN_DIRECTION_OUT : COINES_PIN_DIRECTION_IN;
                 }
                 else /* APP3.0 shuttle pin */
                 {
                     *pin_direction =
-                                     (enum coines_pin_direction)((coines_rsp_buf.buffer[8] << 8) |
-                                                                 coines_rsp_buf.buffer[9]) ? COINES_PIN_DIRECTION_OUT :
-                                                                                             COINES_PIN_DIRECTION_IN;
+                        (enum coines_pin_direction)((coines_rsp_buf.buffer[8] <<
+                    8) | coines_rsp_buf.buffer[9]) ? COINES_PIN_DIRECTION_OUT :COINES_PIN_DIRECTION_IN;
                 }
             }
 
@@ -277,8 +284,8 @@ int16_t coines_get_pin_config(enum coines_multi_io_pin pin_number,
                 else /* APP3.0 shuttle pin */
                 {
                     *pin_value =
-                                 (enum coines_pin_value)((coines_rsp_buf.buffer[10] << 8) |
-                                                         coines_rsp_buf.buffer[11]) ? COINES_PIN_VALUE_HIGH : COINES_PIN_VALUE_LOW;
+                        (enum coines_pin_value)((coines_rsp_buf.buffer[10] <<
+                    8) | coines_rsp_buf.buffer[11]) ? COINES_PIN_VALUE_HIGH : COINES_PIN_VALUE_LOW;
                 }
             }
         }
@@ -424,9 +431,10 @@ int16_t coines_config_i2c_bus(enum coines_i2c_bus bus, enum coines_i2c_mode i2c_
 /*!
  *  @brief This API is used to write the data in I2C communication.
  */
-int8_t coines_write_i2c(enum coines_i2c_bus bus,uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
+int8_t coines_write_i2c(enum coines_i2c_bus bus, uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
 {
     (void)bus;
+
     return (int8_t)coines_write(COINES_SENSOR_INTF_I2C, 0, dev_addr, reg_addr, reg_data, count);
 }
 
@@ -435,9 +443,10 @@ int8_t coines_write_i2c(enum coines_i2c_bus bus,uint8_t dev_addr, uint8_t reg_ad
 /*!
  *  @brief This API is used to read the data in I2C communication.
  */
-int8_t coines_read_i2c(enum coines_i2c_bus bus,uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
+int8_t coines_read_i2c(enum coines_i2c_bus bus, uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
 {
     (void)bus;
+
     return (int8_t)coines_read(COINES_SENSOR_INTF_I2C, 0, dev_addr, reg_addr, reg_data, count);
 }
 
@@ -447,9 +456,10 @@ int8_t coines_read_i2c(enum coines_i2c_bus bus,uint8_t dev_addr, uint8_t reg_add
  *  @brief This API is used to write the data in SPI communication.
  *
  */
-int8_t coines_write_spi(enum coines_spi_bus bus,uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
+int8_t coines_write_spi(enum coines_spi_bus bus, uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
 {
     (void)bus;
+
     return (int8_t)coines_write(COINES_SENSOR_INTF_SPI, dev_addr, 0, reg_addr, reg_data, count);
 }
 
@@ -468,9 +478,10 @@ int8_t coines_write_16bit_spi(enum coines_spi_bus bus, uint8_t cs, uint16_t reg_
  *  @brief This API is used to read the data in SPI communication.
  *
  */
-int8_t coines_read_spi(enum coines_spi_bus bus,uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
+int8_t coines_read_spi(enum coines_spi_bus bus, uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t count)
 {
     (void)bus;
+
     return (int8_t)coines_read(COINES_SENSOR_INTF_SPI, dev_addr, 0, reg_addr, reg_data, count);
 }
 
@@ -478,7 +489,7 @@ int8_t coines_read_spi(enum coines_spi_bus bus,uint8_t dev_addr, uint8_t reg_add
  *  @brief This API is used to read the data in SPI communication.
  *
  */
-int8_t coines_read_16bit_spi(enum coines_spi_bus bus,uint8_t cs, uint16_t reg_addr, void *reg_data, uint16_t count)
+int8_t coines_read_16bit_spi(enum coines_spi_bus bus, uint8_t cs, uint16_t reg_addr, void *reg_data, uint16_t count)
 {
     return (int8_t)coines_read_16bit(bus, cs, reg_addr, reg_data, count);
 }
@@ -720,8 +731,8 @@ int16_t coines_read_stream_sensor_data(uint8_t sensor_id,
         *valid_samples_count = coines_stream_rsp_buf.buffer_size / coines_sensor_info.sensors_byte_count[sensor_id - 1];
         memcpy(data, coines_stream_rsp_buf.buffer, coines_stream_rsp_buf.buffer_size);
         DEBUG_PRINT("coines_read_stream_sensor_data SUCCESFUL! sample_count: %d  bufsize: %d\n",
-                *valid_samples_count,
-                coines_stream_rsp_buf.buffer_size);
+                    *valid_samples_count,
+                    coines_stream_rsp_buf.buffer_size);
     }
     else
     {
@@ -773,7 +784,11 @@ int16_t coines_trigger_timer(enum coines_timer_config tmr_cfg, enum coines_time_
  * @return Result of API execution status
  */
 
-static int16_t coines_read_16bit(enum coines_spi_bus bus,uint8_t cs_pin, uint16_t reg_addr, void *reg_data, uint16_t count)
+static int16_t coines_read_16bit(enum coines_spi_bus bus,
+                                 uint8_t cs_pin,
+                                 uint16_t reg_addr,
+                                 void *reg_data,
+                                 uint16_t count)
 {
     (void)bus;
     int16_t rslt;
@@ -1041,10 +1056,9 @@ static int16_t coines_read(enum coines_sensor_intf intf,
 
             if ((pkt_len > 0) && (pkt_len <= count))
             {
-                /*Copy the data and adjust the buffer position*/
+                /*Copy the data and adjust the buffer position*/ /*lint -e571 Suspicious cast*/
                 memcpy(&reg_data[data_bytes_filled],
-                       &coines_rsp_buf.buffer[COINES_DD_READ_WRITE_DATA_START_POSITION + rsp_buf_pos],
-                       pkt_len);
+                       &coines_rsp_buf.buffer[COINES_DD_READ_WRITE_DATA_START_POSITION + rsp_buf_pos], (size_t)pkt_len);
             }
             /* Packet length will be negative when there is no valid packet in the response buffer.
              * In that case, reading the ring buffer again and see if any valid packet exists.if so,
@@ -1078,10 +1092,9 @@ static int16_t coines_read(enum coines_sensor_intf intf,
                         /* Resetting the response buffer position */
                         rsp_buf_pos = 0;
 
-                        /*Copy the data and adjust the buffer position*/
+                        /*Copy the data and adjust the buffer position*/ /*lint -e571 Suspicious cast */
                         memcpy(&reg_data[data_bytes_filled],
-                               &coines_rsp_buf.buffer[COINES_DD_READ_WRITE_DATA_START_POSITION],
-                               (int16_t)pkt_len);
+                               &coines_rsp_buf.buffer[COINES_DD_READ_WRITE_DATA_START_POSITION], (size_t)pkt_len);
                     }
                 }
                 else
@@ -1124,7 +1137,11 @@ static int16_t coines_read(enum coines_sensor_intf intf,
  *
  * @return Result of API execution status
  */
-static int16_t coines_write_16bit(enum coines_spi_bus bus, uint8_t cs_pin, uint16_t reg_addr, void *reg_data, uint16_t count)
+static int16_t coines_write_16bit(enum coines_spi_bus bus,
+                                  uint8_t cs_pin,
+                                  uint16_t reg_addr,
+                                  void *reg_data,
+                                  uint16_t count)
 {
     (void)bus;
     int16_t rslt = COINES_SUCCESS;
@@ -1304,8 +1321,8 @@ static int16_t config_streaming_mode(enum coines_streaming_mode stream_mode)
                 sampling_time[i] = (double)coines_streaming_cfg_buf[i].stream_config.sampling_time;
                 sampling_unit[i] = coines_streaming_cfg_buf[i].stream_config.sampling_units;
                 sampling_time[i] =
-                                   (sampling_unit[i] ==
-                                    COINES_SAMPLING_TIME_IN_MICRO_SEC) ? (sampling_time[i] / 1000.00) : sampling_time[i];
+                    (sampling_unit[i] ==
+                     COINES_SAMPLING_TIME_IN_MICRO_SEC) ? (sampling_time[i] / 1000.00) : sampling_time[i];
             }
 
             /* Calculate GCD */
@@ -1373,7 +1390,7 @@ uint64_t coines_get_micro_sec()
  *
  * @return pointer to version string
  */
-char* coines_get_version()
+const char* coines_get_version()
 {
     return COINES_VERSION;
 }
@@ -1395,18 +1412,20 @@ void coines_soft_reset(void)
 /*!
  *  @brief This API is used to write the data in I2C communication.
  */
-int8_t coines_i2c_set(enum coines_i2c_bus bus,uint8_t dev_addr, uint8_t *data, uint8_t count)
+int8_t coines_i2c_set(enum coines_i2c_bus bus, uint8_t dev_addr, uint8_t *data, uint8_t count)
 {
     (void)bus;
+
     return (int8_t)coines_third_party_write(COINES_SENSOR_INTF_I2C, 0, dev_addr, data, count);
 }
 
 /*!
  *  @brief This API is used to read the data in I2C communication.
  */
-int8_t coines_i2c_get(enum coines_i2c_bus bus,uint8_t dev_addr, uint8_t *data, uint8_t count)
+int8_t coines_i2c_get(enum coines_i2c_bus bus, uint8_t dev_addr, uint8_t *data, uint8_t count)
 {
     (void)bus;
+
     return (int8_t)coines_third_party_read(COINES_SENSOR_INTF_I2C, 0, dev_addr, data, count);
 }
 
@@ -1494,16 +1513,15 @@ static int16_t coines_third_party_read(enum coines_sensor_intf intf,
             }
 
             if ((coines_rsp_buf.buffer[COINES_DD_RESPONSE_IDENTIFIER_POSITION] ==
-            COINES_CMDID_THIRD_PARTY_WRITEANDREAD)
-                &&
+                 COINES_CMDID_THIRD_PARTY_WRITEANDREAD) &&
                 (coines_rsp_buf.buffer[COINES_READ_RESPONSE_PKT_POSITION] == COINES_READ_RESP_ID))
             {
                 pkt_len = (int16_t)coines_rsp_buf.buffer[rsp_buf_pos + COINES_BYTEPOS_PACKET_SIZE] - 10;
 
                 if ((pkt_len > 0) && (pkt_len <= count))
                 {
-                    /*Copy the data and adjust the buffer position*/
-                    memcpy(&data[data_bytes_filled], &coines_rsp_buf.buffer[8 + rsp_buf_pos], pkt_len);
+                    /*Copy the data and adjust the buffer position*/ /*lint -e571 Suspicious cast */
+                    memcpy(&data[data_bytes_filled], &coines_rsp_buf.buffer[8 + rsp_buf_pos], (size_t)pkt_len);
 
                     /* Increment the packet to point to subsequent packet */
                     data_bytes_filled += (uint16_t)pkt_len;
@@ -1707,6 +1725,14 @@ int16_t coines_deconfig_spi_bus(enum coines_spi_bus bus)
     (void)bus;
 
     return COINES_SUCCESS;
+}
+
+/*!
+ *  @brief This API is used to flush the buffer
+ */
+void coines_flush_intf(enum coines_comm_intf intf)
+{
+    (void)intf;
 }
 
 /** @}*/

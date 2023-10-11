@@ -79,4 +79,4 @@ of third parties which may result from its use. No license is granted by
 implication or otherwise under any patent or patent rights of the 
 copyright holder. 
 
-Copyright (C) 2020 Bosch Sensortec GmbH
+Copyright (C) 2023 Bosch Sensortec GmbH

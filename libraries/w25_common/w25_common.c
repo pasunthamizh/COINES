@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2022 Bosch Sensortec GmbH
+ * Copyright (C) 2023 Bosch Sensortec GmbH
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -140,7 +140,7 @@ w25_nand_error_t w25_init(uint16_t *device_id)
         ret_code = W25_NAND_INITIALIZED;
 
     }
-    else if ((info.device_id == W25N02JW_DEVICE_ID) && (info.mfg_id == W25_MANUFACTURER_ID))
+    else if (((info.device_id == W25N02JW_DEVICE_ID) || (info.device_id == W25N02KW_DEVICE_ID)) && (info.mfg_id == W25_MANUFACTURER_ID))
     {
         w25n02jw_init_protect_reg();
         w25n02jw_init_config_reg();
@@ -218,7 +218,7 @@ uint8_t w25_spi_init()
     flash_spi_config.mosi_pin = SPI_MOSI_PIN_FLASH;
     flash_spi_config.sck_pin = SPI_CLK_PIN_FLASH;
     flash_spi_config.ss_pin = SPI_CS_PIN_FLASH;
-    flash_spi_config.frequency = NRF_SPIM_FREQ_8M;
+    flash_spi_config.frequency = NRF_SPIM_FREQ_16M;
 
     if (nrfx_spim_init(&flash_spi_instance, &flash_spi_config, NULL, NULL) != NRFX_SUCCESS)
     {

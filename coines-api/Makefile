@@ -39,6 +39,18 @@ include $(SRC_DIR)/mcu_app30.mk
 STATIC_LIB = libcoines-mcu_app30.a
 endif
 
+ifeq ($(TARGET),MCU_NICLA)
+SRC_DIR = mcu_nicla
+include $(SRC_DIR)/mcu_nicla.mk
+STATIC_LIB = libcoines-mcu_nicla.a
+endif
+
+ifeq ($(TARGET),MCU_APP31)
+SRC_DIR = mcu_app31
+include $(SRC_DIR)/mcu_app31.mk
+STATIC_LIB = libcoines-mcu_app31.a
+endif
+
 OBJ_DIR = build/$(TARGET)
 
 ASM_SRCS = $(addprefix $(SRC_DIR)/,$(ASM_SRCS_COINES))
@@ -116,6 +128,12 @@ $(OBJ_DIR)/%.c.o: %.c
 clean:
 	@echo "Cleaning..."
 	@$(RM) $(STATIC_LIB) build
+	
+clean_pc:
+ifneq ("$(wildcard $(STATIC_LIB))","")
+	@echo "Cleaning pc..."
+	@$(RM) $(STATIC_LIB) $(call syspath,$(OBJ_DIR))
+endif
 
 .PHONY: all clean $(STATIC_LIB)
 

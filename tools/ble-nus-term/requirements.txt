@@ -1,2 +1,2 @@
-bleak
+bleak==0.20.2
 aioconsole

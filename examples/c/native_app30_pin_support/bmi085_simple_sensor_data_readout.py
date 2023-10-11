@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-* Copyright (C) 2022 Bosch Sensortec GmbH
+* Copyright (C) 2023 Bosch Sensortec GmbH
 *
 * Created 21.11.2019
 *

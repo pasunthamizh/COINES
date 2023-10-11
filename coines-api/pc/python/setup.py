@@ -17,7 +17,7 @@ DOCLINES = (__doc__ or '').split("\n")
 
 setuptools.setup(
     name="coinespy",
-    version="0.8.3",
+    version="1.0.0",
     author="Bosch Sensortec GmbH",
     author_email="contact@bosch-sensortec.com",
     description=DOCLINES[0],
@@ -28,7 +28,8 @@ setuptools.setup(
                                'libcoines_32.dll',
                                'libcoines_64.so',
                                'libcoines_32.so',
-                               'libcoines.dylib',
+                               'libcoines_64.dylib',
+                               'libcoines_32.dylib',
                                'libcoines_armv7_32.so']
                   },
     classifiers=[
